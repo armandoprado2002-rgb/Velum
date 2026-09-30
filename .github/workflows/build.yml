@@ -1,0 +1,1114 @@
+name: Build Velum
+on:
+  push:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Preparar Android SDK
+        run: |
+          SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          "$SDKM" --licenses < <(yes) > /dev/null || true
+          "$SDKM" "platforms;android-35" "build-tools;35.0.0" > /dev/null || true
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+      - name: Crear proyecto
+        run: |
+          mkdir -p app/src/main/java/com/velum/player app/src/main/res/mipmap-anydpi app/src/main/res/drawable
+          cat > settings.gradle.kts <<'EOF'
+          pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
+          dependencyResolutionManagement { repositories { google(); mavenCentral() } }
+          rootProject.name = "Velum"
+          include(":app")
+          EOF
+          cat > build.gradle.kts <<'EOF'
+          plugins {
+              id("com.android.application") version "8.7.3" apply false
+              id("org.jetbrains.kotlin.android") version "2.0.20" apply false
+              id("org.jetbrains.kotlin.plugin.compose") version "2.0.20" apply false
+          }
+          EOF
+          cat > gradle.properties <<'EOF'
+          android.useAndroidX=true
+          org.gradle.jvmargs=-Xmx3g
+          EOF
+          cat > app/build.gradle.kts <<'EOF'
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+              id("org.jetbrains.kotlin.plugin.compose")
+          }
+          android {
+              namespace = "com.velum.player"
+              compileSdk = 35
+              buildToolsVersion = "35.0.0"
+              defaultConfig {
+                  applicationId = "com.velum.player"
+                  minSdk = 29
+                  targetSdk = 35
+                  versionCode = 2
+                  versionName = "2.0"
+              }
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+              kotlinOptions { jvmTarget = "17" }
+              buildFeatures { compose = true }
+          }
+          dependencies {
+              implementation(platform("androidx.compose:compose-bom:2024.09.00"))
+              implementation("androidx.compose.ui:ui")
+              implementation("androidx.compose.foundation:foundation")
+              implementation("androidx.compose.material3:material3")
+              implementation("androidx.activity:activity-compose:1.9.2")
+              implementation("androidx.media3:media3-exoplayer:1.4.1")
+              implementation("androidx.media3:media3-session:1.4.1")
+              implementation("androidx.palette:palette:1.0.0")
+          }
+          EOF
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.READ_MEDIA_AUDIO"/>
+              <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>
+              <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
+              <uses-permission android:name="android.permission.WAKE_LOCK"/>
+              <application android:label="Velum" android:icon="@mipmap/ic_launcher" android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+                  <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTop" android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize|uiMode">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN"/>
+                          <category android:name="android.intent.category.LAUNCHER"/>
+                      </intent-filter>
+                  </activity>
+                  <service android:name=".PlaybackService" android:exported="true" android:foregroundServiceType="mediaPlayback">
+                      <intent-filter>
+                          <action android:name="androidx.media3.session.MediaSessionService"/>
+                      </intent-filter>
+                  </service>
+              </application>
+          </manifest>
+          EOF
+          cat > app/src/main/res/mipmap-anydpi/ic_launcher.xml <<'EOF'
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@drawable/ic_bg"/>
+              <foreground android:drawable="@drawable/ic_fg"/>
+          </adaptive-icon>
+          EOF
+          cat > app/src/main/res/drawable/ic_bg.xml <<'EOF'
+          <vector xmlns:android="http://schemas.android.com/apk/res/android" xmlns:aapt="http://schemas.android.com/aapt" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+              <path android:pathData="M0,0h108v108h-108z">
+                  <aapt:attr name="android:fillColor">
+                      <gradient android:type="linear" android:startX="0" android:startY="0" android:endX="108" android:endY="108">
+                          <item android:offset="0" android:color="#FFC77DFF"/>
+                          <item android:offset="1" android:color="#FF3A1578"/>
+                      </gradient>
+                  </aapt:attr>
+              </path>
+          </vector>
+          EOF
+          cat > app/src/main/res/drawable/ic_fg.xml <<'EOF'
+          <vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+              <path android:fillColor="#FFFFFFFF" android:pathData="M34,36 L46,36 L54,58 L62,36 L74,36 L60,74 L48,74 Z"/>
+          </vector>
+          EOF
+          cat > app/src/main/java/com/velum/player/MainActivity.kt <<'EOF'
+          package com.velum.player
+
+          import android.Manifest
+          import android.content.ComponentName
+          import android.content.Context
+          import android.graphics.Bitmap
+          import android.os.Build
+          import android.os.Bundle
+          import androidx.activity.ComponentActivity
+          import androidx.activity.SystemBarStyle
+          import androidx.activity.compose.BackHandler
+          import androidx.activity.compose.rememberLauncherForActivityResult
+          import androidx.activity.compose.setContent
+          import androidx.activity.enableEdgeToEdge
+          import androidx.activity.result.contract.ActivityResultContracts
+          import androidx.compose.animation.animateColorAsState
+          import androidx.compose.animation.core.Animatable
+          import androidx.compose.animation.core.LinearEasing
+          import androidx.compose.animation.core.animateDpAsState
+          import androidx.compose.animation.core.animateFloat
+          import androidx.compose.animation.core.animateFloatAsState
+          import androidx.compose.animation.core.infiniteRepeatable
+          import androidx.compose.animation.core.rememberInfiniteTransition
+          import androidx.compose.animation.core.tween
+          import androidx.compose.foundation.Canvas
+          import androidx.compose.foundation.Image
+          import androidx.compose.foundation.background
+          import androidx.compose.foundation.border
+          import androidx.compose.foundation.clickable
+          import androidx.compose.foundation.gestures.awaitEachGesture
+          import androidx.compose.foundation.gestures.awaitFirstDown
+          import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+          import androidx.compose.foundation.gestures.detectTapGestures
+          import androidx.compose.foundation.horizontalScroll
+          import androidx.compose.foundation.layout.Arrangement
+          import androidx.compose.foundation.layout.Box
+          import androidx.compose.foundation.layout.Column
+          import androidx.compose.foundation.layout.PaddingValues
+          import androidx.compose.foundation.layout.Row
+          import androidx.compose.foundation.layout.aspectRatio
+          import androidx.compose.foundation.layout.fillMaxHeight
+          import androidx.compose.foundation.layout.fillMaxSize
+          import androidx.compose.foundation.layout.fillMaxWidth
+          import androidx.compose.foundation.layout.height
+          import androidx.compose.foundation.layout.navigationBarsPadding
+          import androidx.compose.foundation.layout.padding
+          import androidx.compose.foundation.layout.size
+          import androidx.compose.foundation.layout.statusBarsPadding
+          import androidx.compose.foundation.layout.width
+          import androidx.compose.foundation.lazy.LazyColumn
+          import androidx.compose.foundation.lazy.grid.GridCells
+          import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+          import androidx.compose.foundation.lazy.grid.itemsIndexed
+          import androidx.compose.foundation.lazy.itemsIndexed
+          import androidx.compose.foundation.rememberScrollState
+          import androidx.compose.foundation.shape.RoundedCornerShape
+          import androidx.compose.foundation.text.BasicTextField
+          import androidx.compose.foundation.verticalScroll
+          import androidx.compose.material3.Slider
+          import androidx.compose.material3.SliderDefaults
+          import androidx.compose.material3.Text
+          import androidx.compose.runtime.Composable
+          import androidx.compose.runtime.DisposableEffect
+          import androidx.compose.runtime.FloatState
+          import androidx.compose.runtime.LaunchedEffect
+          import androidx.compose.runtime.derivedStateOf
+          import androidx.compose.runtime.getValue
+          import androidx.compose.runtime.mutableFloatStateOf
+          import androidx.compose.runtime.mutableIntStateOf
+          import androidx.compose.runtime.mutableLongStateOf
+          import androidx.compose.runtime.mutableStateListOf
+          import androidx.compose.runtime.mutableStateOf
+          import androidx.compose.runtime.produceState
+          import androidx.compose.runtime.remember
+          import androidx.compose.runtime.rememberCoroutineScope
+          import androidx.compose.runtime.rememberUpdatedState
+          import androidx.compose.runtime.setValue
+          import androidx.compose.ui.Alignment
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.composed
+          import androidx.compose.ui.draw.clip
+          import androidx.compose.ui.draw.drawBehind
+          import androidx.compose.ui.draw.drawWithContent
+          import androidx.compose.ui.geometry.Offset
+          import androidx.compose.ui.geometry.Size
+          import androidx.compose.ui.graphics.Brush
+          import androidx.compose.ui.graphics.Color
+          import androidx.compose.ui.graphics.Path
+          import androidx.compose.ui.graphics.SolidColor
+          import androidx.compose.ui.graphics.StrokeCap
+          import androidx.compose.ui.graphics.StrokeJoin
+          import androidx.compose.ui.graphics.asImageBitmap
+          import androidx.compose.ui.graphics.drawscope.Stroke
+          import androidx.compose.ui.graphics.drawscope.scale
+          import androidx.compose.ui.graphics.lerp
+          import androidx.compose.ui.graphics.luminance
+          import androidx.compose.ui.graphics.vector.PathParser
+          import androidx.compose.ui.input.pointer.PointerEventPass
+          import androidx.compose.ui.input.pointer.pointerInput
+          import androidx.compose.ui.layout.ContentScale
+          import androidx.compose.ui.platform.LocalContext
+          import androidx.compose.ui.text.TextStyle
+          import androidx.compose.ui.text.font.FontWeight
+          import androidx.compose.ui.text.style.TextOverflow
+          import androidx.compose.ui.unit.Dp
+          import androidx.compose.ui.unit.dp
+          import androidx.compose.ui.unit.sp
+          import androidx.media3.common.MediaItem
+          import androidx.media3.common.MediaMetadata
+          import androidx.media3.common.Player
+          import androidx.media3.session.MediaController
+          import androidx.media3.session.SessionToken
+          import androidx.palette.graphics.Palette
+          import kotlin.math.PI
+          import kotlin.math.sin
+          import kotlinx.coroutines.Dispatchers
+          import kotlinx.coroutines.delay
+          import kotlinx.coroutines.launch
+          import kotlinx.coroutines.withContext
+
+          // Íconos vectoriales estilo Material (trazados SVG)
+          object I {
+              const val PLAY = "M8,5v14l11,-7z"
+              const val PAUSE = "M6,19h4V5H6v14zM14,5v14h4V5h-4z"
+              const val NEXT = "M6,18l8.5,-6L6,6v12zM16,6v12h2V6h-2z"
+              const val PREV = "M6,6h2v12H6zM9.5,12l8.5,6V6z"
+              const val SHUFFLE = "M10.59,9.17L5.41,4 4,5.41l5.17,5.17 1.42,-1.41zM14.5,4l2.04,2.04L4,18.59 5.41,20 17.96,7.46 20,9.5V4h-5.5zM14.83,13.41l-1.41,1.41 3.13,3.13L14.5,20H20v-5.5l-2.04,2.04 -3.13,-3.13z"
+              const val REPEAT = "M7,7h10v3l4,-4 -4,-4v3H5v6h2V7zM17,17H7v-3l-4,4 4,4v-3h12v-6h-2v4z"
+              const val REPEAT_ONE = "M7,7h10v3l4,-4 -4,-4v3H5v6h2V7zM17,17H7v-3l-4,4 4,4v-3h12v-6h-2v4zM13,15V9h-1l-2,1v1h1.5v4H13z"
+              const val HOME = "M10,20v-6h4v6h5v-8h3L12,3 2,12h3v8z"
+              const val SEARCH = "M15.5,14h-0.79l-0.28,-0.27C15.41,12.59 16,11.11 16,9.5 16,5.91 13.09,3 9.5,3S3,5.91 3,9.5 5.91,16 9.5,16c1.61,0 3.09,-0.59 4.23,-1.57l0.27,0.28v0.79l5,4.99L20.49,19l-4.99,-5zM9.5,14C7.01,14 5,11.99 5,9.5S7.01,5 9.5,5 14,7.01 14,9.5 11.99,14 9.5,14z"
+              const val LIBRARY = "M20,2H8C6.9,2 6,2.9 6,4v12c0,1.1 0.9,2 2,2h12c1.1,0 2,-0.9 2,-2V4c0,-1.1 -0.9,-2 -2,-2zM18,7h-3v5.5c0,1.38 -1.12,2.5 -2.5,2.5S10,13.88 10,12.5s1.12,-2.5 2.5,-2.5c0.57,0 1.08,0.19 1.5,0.51V5h4v2zM4,6H2v14c0,1.1 0.9,2 2,2h14v-2H4V6z"
+              const val HEART = "M12,21.35l-1.45,-1.32C5.4,15.36 2,12.28 2,8.5 2,5.42 4.42,3 7.5,3c1.74,0 3.41,0.81 4.5,2.09C13.09,3.81 14.76,3 16.5,3 19.58,3 22,5.42 22,8.5c0,3.78 -3.4,6.86 -8.55,11.54L12,21.35z"
+              const val TUNE = "M3,17v2h6v-2H3zM3,5v2h10V5H3zM13,21v-2h8v-2h-8v-2h-2v6h2zM7,9v2H3v2h4v2h2V9H7zM21,13v-2H11v2h10zM15,9h2V7h4V5h-4V3h-2v6z"
+          }
+
+          fun fmt(sec: Int): String = (sec / 60).toString() + ":" + (sec % 60).toString().padStart(2, '0')
+
+          fun freqLabel(hz: Int): String = if (hz >= 1000) "%.1f kHz".format(hz / 1000f) else hz.toString() + " Hz"
+
+          fun nextRepeat(m: Int): Int = when (m) {
+              Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
+              Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
+              else -> Player.REPEAT_MODE_OFF
+          }
+
+          fun Song.toItem(): MediaItem = MediaItem.Builder()
+              .setUri(uri)
+              .setMediaId(id.toString())
+              .setMediaMetadata(
+                  MediaMetadata.Builder()
+                      .setTitle(title)
+                      .setArtist(artist)
+                      .setAlbumTitle(album)
+                      .setArtworkUri(uri)
+                      .build()
+              )
+              .build()
+
+          // Reflejo translúcido que aparece donde tocas y se desvanece
+          fun Modifier.glass(): Modifier = composed {
+              var pos by remember { mutableStateOf<Offset?>(null) }
+              val a = remember { Animatable(0f) }
+              val scope = rememberCoroutineScope()
+              this.pointerInput(Unit) {
+                  awaitEachGesture {
+                      val d = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                      pos = d.position
+                      scope.launch { a.snapTo(1f) }
+                      do {
+                          val e = awaitPointerEvent(PointerEventPass.Initial)
+                          val first = e.changes.firstOrNull()
+                          if (first != null) pos = first.position
+                      } while (e.changes.any { it.pressed })
+                      scope.launch { a.animateTo(0f, tween(550)) }
+                  }
+              }.drawWithContent {
+                  drawContent()
+                  val p = pos
+                  if (p != null && a.value > 0f) {
+                      drawRect(
+                          Brush.radialGradient(
+                              colors = listOf(
+                                  Color.White.copy(alpha = 0.30f * a.value),
+                                  Color.White.copy(alpha = 0.08f * a.value),
+                                  Color.Transparent
+                              ),
+                              center = p,
+                              radius = size.maxDimension * 0.6f
+                          )
+                      )
+                  }
+              }
+          }
+
+          @Composable
+          fun Ico(d: String, tint: Color, sz: Dp) {
+              val path = remember(d) { runCatching { PathParser().parsePathString(d).toPath() }.getOrDefault(Path()) }
+              Canvas(Modifier.size(sz)) {
+                  scale(size.width / 24f, Offset.Zero) { drawPath(path, tint) }
+              }
+          }
+
+          @Composable
+          fun IcoBtn(d: String, box: Dp, icon: Dp, tint: Color = Color.White, onClick: () -> Unit) {
+              Box(
+                  Modifier.size(box).clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = 0.10f)).glass().clickable(onClick = onClick),
+                  contentAlignment = Alignment.Center
+              ) { Ico(d, tint, icon) }
+          }
+
+          @Composable
+          fun Pill(w: Dp, h: Dp, corner: Dp, bg: Color, onClick: () -> Unit, content: @Composable () -> Unit) {
+              Box(
+                  Modifier.size(w, h).clip(RoundedCornerShape(corner)).background(bg).glass().clickable(onClick = onClick),
+                  contentAlignment = Alignment.Center
+              ) { content() }
+          }
+
+          @Composable
+          fun Chip(t: String, on: Boolean, tint: Color, onClick: () -> Unit) {
+              Text(
+                  t,
+                  color = if (on) Color(0xFF12121A) else Color.White,
+                  fontSize = 13.sp,
+                  modifier = Modifier.clip(RoundedCornerShape(50))
+                      .background(if (on) tint else Color.White.copy(alpha = 0.10f))
+                      .clickable(onClick = onClick)
+                      .padding(horizontal = 14.dp, vertical = 8.dp)
+              )
+          }
+
+          @Composable
+          fun Label(t: String) {
+              Text(t, color = Color.White.copy(alpha = 0.6f), fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(top = 18.dp, bottom = 8.dp))
+          }
+
+          @Composable
+          fun Empty(msg: String) {
+              Box(Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) {
+                  Text(msg, color = Color.Gray, fontSize = 14.sp)
+              }
+          }
+
+          @Composable
+          fun Cover(s: Song?, mod: Modifier) {
+              val ctx = LocalContext.current
+              val bmp by produceState<Bitmap?>(null, s?.id) { value = if (s == null) null else Art.get(ctx, s) }
+              val m = mod.background(Color(0xFF2A2A35))
+              val b = bmp
+              if (b != null) {
+                  Image(bitmap = b.asImageBitmap(), contentDescription = null, modifier = m, contentScale = ContentScale.Crop)
+              } else {
+                  Box(m)
+              }
+          }
+
+          @Composable
+          fun Segments(items: List<String>, sel: Int, on: (Int) -> Unit) {
+              val sh = RoundedCornerShape(50)
+              Row(
+                  Modifier.padding(top = 12.dp).clip(sh)
+                      .border(1.dp, Color.White.copy(alpha = 0.25f), sh)
+                      .background(Color.White.copy(alpha = 0.06f))
+                      .glass().padding(3.dp)
+              ) {
+                  items.forEachIndexed { i, t ->
+                      Text(
+                          t,
+                          color = Color.White.copy(alpha = if (i == sel) 1f else 0.6f),
+                          fontSize = 12.sp,
+                          modifier = Modifier.clip(sh)
+                              .background(if (i == sel) Color.White.copy(alpha = 0.22f) else Color.Transparent)
+                              .clickable { on(i) }
+                              .padding(horizontal = 14.dp, vertical = 6.dp)
+                      )
+                  }
+              }
+          }
+
+          @Composable
+          fun SongRow(n: Int, s: Song, sub: String, onClick: () -> Unit) {
+              Row(
+                  Modifier.fillMaxWidth().glass().clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = 8.dp),
+                  verticalAlignment = Alignment.CenterVertically
+              ) {
+                  Text(n.toString(), color = Color.Gray, fontSize = 12.sp, modifier = Modifier.width(24.dp))
+                  Cover(s, Modifier.size(48.dp).clip(RoundedCornerShape(6.dp)))
+                  Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                      Text(s.title, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                      Text(sub, color = Color.Gray, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                  }
+              }
+          }
+
+          // Barra de progreso ondulada estilo Pixel: fluida, se aplana al pausar
+          @Composable
+          fun WavySeek(pos: FloatState, dur: FloatState, playing: Boolean, color: Color, onSeek: (Float) -> Unit) {
+              var scrub by remember { mutableStateOf<Float?>(null) }
+              val seek by rememberUpdatedState(onSeek)
+              val amp by animateFloatAsState(if (playing) 1f else 0f, tween(400), label = "amp")
+              val phase by rememberInfiniteTransition(label = "wave").animateFloat(
+                  initialValue = 0f,
+                  targetValue = (2.0 * PI).toFloat(),
+                  animationSpec = infiniteRepeatable(tween(1800, easing = LinearEasing)),
+                  label = "phase"
+              )
+              Canvas(
+                  Modifier.fillMaxWidth().height(40.dp)
+                      .pointerInput(Unit) {
+                          detectTapGestures { o -> seek((o.x / size.width).coerceIn(0f, 1f)) }
+                      }
+                      .pointerInput(Unit) {
+                          detectHorizontalDragGestures(
+                              onDragStart = { o -> scrub = (o.x / size.width).coerceIn(0f, 1f) },
+                              onDragEnd = {
+                                  val s = scrub
+                                  if (s != null) seek(s)
+                                  scrub = null
+                              },
+                              onDragCancel = { scrub = null },
+                              onHorizontalDrag = { change, _ -> scrub = (change.position.x / size.width).coerceIn(0f, 1f) }
+                          )
+                      }
+              ) {
+                  val w = size.width
+                  val cy = size.height / 2f
+                  val d = dur.floatValue.coerceAtLeast(1f)
+                  val frac = (scrub ?: (pos.floatValue / d)).coerceIn(0f, 1f)
+                  val x = w * frac
+                  val stroke = 4.dp.toPx()
+                  val a = 5.dp.toPx() * amp
+                  val k = (2.0 * PI).toFloat() / 28.dp.toPx()
+                  drawLine(color.copy(alpha = 0.25f), Offset(x, cy), Offset(w, cy), stroke, StrokeCap.Round)
+                  val path = Path()
+                  path.moveTo(0f, cy + a * sin(-phase))
+                  var xx = 3f
+                  while (xx < x) {
+                      path.lineTo(xx, cy + a * sin(k * xx - phase))
+                      xx += 3f
+                  }
+                  path.lineTo(x, cy + a * sin(k * x - phase))
+                  drawPath(path, color, style = Stroke(width = stroke, cap = StrokeCap.Round, join = StrokeJoin.Round))
+                  drawLine(color, Offset(x, cy - 13.dp.toPx()), Offset(x, cy + 13.dp.toPx()), stroke, StrokeCap.Round)
+              }
+          }
+
+          @Composable
+          fun TimeRow(pos: FloatState, dur: FloatState) {
+              val e by remember { derivedStateOf { (pos.floatValue / 1000f).toInt() } }
+              val t by remember { derivedStateOf { (dur.floatValue / 1000f).toInt() } }
+              Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                  Text(fmt(e), color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+                  Text(fmt(t), color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+              }
+          }
+
+          @Composable
+          fun rememberController(): MediaController? {
+              val ctx = LocalContext.current
+              var c by remember { mutableStateOf<MediaController?>(null) }
+              DisposableEffect(Unit) {
+                  val token = SessionToken(ctx, ComponentName(ctx, PlaybackService::class.java))
+                  val f = MediaController.Builder(ctx, token).buildAsync()
+                  f.addListener({
+                      if (!f.isCancelled) c = runCatching { f.get() }.getOrNull()
+                  }, ctx.mainExecutor)
+                  onDispose { MediaController.releaseFuture(f) }
+              }
+              return c
+          }
+
+          // Panel de ajustes premium: velocidad, temporizador, ecualizador y graves
+          @Composable
+          fun TunePanel(ctl: MediaController, tint: Color, onClose: () -> Unit) {
+              val svc = PlaybackService.instance
+              var speed by remember { mutableFloatStateOf(ctl.playbackParameters.speed) }
+              var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+              LaunchedEffect(Unit) {
+                  while (true) {
+                      now = System.currentTimeMillis()
+                      delay(1000L)
+                  }
+              }
+              val end = PlaybackService.sleepEnd
+              val left = if (end > now) ((end - now) / 60000L).toInt() + 1 else 0
+              val bands = svc?.eqBands() ?: 0
+              val levels = remember {
+                  mutableStateListOf<Int>().apply {
+                      for (b in 0 until bands) add(svc?.eqLevel(b) ?: 0)
+                  }
+              }
+              val presets = remember { svc?.presetNames() ?: emptyList() }
+              var bass by remember { mutableFloatStateOf((svc?.bassLevel() ?: 0).toFloat()) }
+              val range = svc?.eqRange() ?: Pair(-1500, 1500)
+              val sc = SliderDefaults.colors(
+                  thumbColor = tint,
+                  activeTrackColor = tint,
+                  inactiveTrackColor = Color.White.copy(alpha = 0.15f)
+              )
+              Box(
+                  Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f)).pointerInput(Unit) { detectTapGestures { onClose() } },
+                  contentAlignment = Alignment.BottomCenter
+              ) {
+                  Column(
+                      Modifier.fillMaxWidth().fillMaxHeight(0.8f)
+                          .clip(RoundedCornerShape(28.dp, 28.dp, 0.dp, 0.dp))
+                          .background(Color(0xFF14141C))
+                          .pointerInput(Unit) { detectTapGestures { } }
+                          .verticalScroll(rememberScrollState())
+                          .navigationBarsPadding()
+                          .padding(20.dp)
+                  ) {
+                      Text("Ajustes de audio", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                      Label("Velocidad")
+                      Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                          listOf(0.75f to "0.75×", 1f to "Normal", 1.25f to "1.25×", 1.5f to "1.5×", 2f to "2×").forEach { (v, name) ->
+                              Chip(name, speed == v, tint) {
+                                  speed = v
+                                  ctl.setPlaybackSpeed(v)
+                              }
+                          }
+                      }
+                      Label("Temporizador de apagado")
+                      Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                          listOf(0 to "Apagado", 15 to "15 min", 30 to "30 min", 45 to "45 min", 60 to "60 min").forEach { (m, name) ->
+                              Chip(name, m == 0 && left == 0, tint) { svc?.setSleep(m) }
+                          }
+                      }
+                      if (left > 0) {
+                          Text("La música se detendrá en " + left.toString() + " min", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
+                      }
+                      if (bands > 0) {
+                          Label("Ecualizador")
+                          if (presets.isNotEmpty()) {
+                              Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                  presets.forEachIndexed { i, name ->
+                                      Chip(name, false, tint) {
+                                          svc?.usePreset(i)
+                                          for (b in 0 until bands) levels[b] = svc?.eqLevel(b) ?: 0
+                                      }
+                                  }
+                              }
+                          }
+                          for (b in 0 until bands) {
+                              Row(verticalAlignment = Alignment.CenterVertically) {
+                                  Text(freqLabel(svc?.eqFreq(b) ?: 0), color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp, modifier = Modifier.width(64.dp))
+                                  Slider(
+                                      value = levels[b].toFloat(),
+                                      onValueChange = { v ->
+                                          levels[b] = v.toInt()
+                                          svc?.setEqLevel(b, v.toInt())
+                                      },
+                                      valueRange = range.first.toFloat()..range.second.toFloat(),
+                                      colors = sc
+                                  )
+                              }
+                          }
+                          Label("Refuerzo de graves")
+                          Slider(
+                              value = bass,
+                              onValueChange = { v ->
+                                  bass = v
+                                  svc?.setBass(v.toInt())
+                              },
+                              valueRange = 0f..1000f,
+                              colors = sc
+                          )
+                      }
+                  }
+              }
+          }
+
+          @Composable
+          fun App(ctl: MediaController) {
+              val ctx = LocalContext.current
+              val prefs = remember { ctx.getSharedPreferences("velum", Context.MODE_PRIVATE) }
+              var songs by remember { mutableStateOf<List<Song>>(emptyList()) }
+              var loaded by remember { mutableStateOf(false) }
+              var granted by remember { mutableStateOf(false) }
+              val audioPerm = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_AUDIO else Manifest.permission.READ_EXTERNAL_STORAGE
+              val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { res ->
+                  granted = res[audioPerm] == true
+              }
+              LaunchedEffect(Unit) {
+                  val perms = if (Build.VERSION.SDK_INT >= 33) arrayOf(audioPerm, Manifest.permission.POST_NOTIFICATIONS) else arrayOf(audioPerm)
+                  launcher.launch(perms)
+              }
+              LaunchedEffect(granted) {
+                  if (granted) {
+                      songs = withContext(Dispatchers.IO) { loadSongs(ctx) }
+                      loaded = true
+                  }
+              }
+
+              var curId by remember { mutableStateOf(ctl.currentMediaItem?.mediaId) }
+              var playing by remember { mutableStateOf(ctl.isPlaying) }
+              var shuffle by remember { mutableStateOf(ctl.shuffleModeEnabled) }
+              var repeatMode by remember { mutableIntStateOf(ctl.repeatMode) }
+              var favs by remember { mutableStateOf(prefs.getStringSet("favs", emptySet<String>())?.toSet() ?: emptySet<String>()) }
+              DisposableEffect(ctl) {
+                  val l = object : Player.Listener {
+                      override fun onIsPlayingChanged(isPlaying: Boolean) { playing = isPlaying }
+                      override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) { curId = mediaItem?.mediaId }
+                      override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) { shuffle = shuffleModeEnabled }
+                      override fun onRepeatModeChanged(mode: Int) { repeatMode = mode }
+                  }
+                  ctl.addListener(l)
+                  onDispose { ctl.removeListener(l) }
+              }
+              val cur = remember(songs, curId) { songs.firstOrNull { it.id.toString() == curId } }
+              val isFav = cur != null && cur.id.toString() in favs
+
+              fun toggleFav(id: Long) {
+                  val k = id.toString()
+                  favs = if (k in favs) favs - k else favs + k
+                  prefs.edit().putStringSet("favs", HashSet(favs)).apply()
+              }
+              fun play(list: List<Song>, i: Int) {
+                  if (list.isEmpty()) return
+                  val start = (i - 200).coerceAtLeast(0)
+                  val sub = list.subList(start, minOf(list.size, start + 1000))
+                  ctl.setMediaItems(sub.map { it.toItem() }, i - start, 0L)
+                  ctl.prepare()
+                  ctl.play()
+                  curId = list[i].id.toString()
+              }
+              fun toggle() { if (ctl.isPlaying) ctl.pause() else ctl.play() }
+
+              // Posición leída solo al dibujar: la barra es fluida sin recomponer toda la pantalla
+              val posS = remember { mutableFloatStateOf(0f) }
+              val durS = remember { mutableFloatStateOf(1f) }
+              LaunchedEffect(ctl) {
+                  while (true) {
+                      posS.floatValue = ctl.currentPosition.toFloat()
+                      durS.floatValue = ctl.duration.coerceAtLeast(1L).toFloat()
+                      delay(if (ctl.isPlaying) 50L else 300L)
+                  }
+              }
+
+              // La interfaz toma los colores de la carátula
+              var accent by remember { mutableStateOf(Pair(0xFF4A1D8F.toInt(), 0xFFD9A6FF.toInt())) }
+              LaunchedEffect(cur?.id) {
+                  val s = cur
+                  if (s != null) {
+                      val b = Art.get(ctx, s)
+                      if (b != null) {
+                          accent = withContext(Dispatchers.Default) {
+                              val p = Palette.from(b).generate()
+                              val dark = p.getDarkVibrantColor(p.getDarkMutedColor(p.getMutedColor(0xFF4A1D8F.toInt())))
+                              val light = p.getLightVibrantColor(p.getVibrantColor(p.getLightMutedColor(0xFFD9A6FF.toInt())))
+                              Pair(dark, light)
+                          }
+                      }
+                  }
+              }
+              val rawTint = Color(accent.second)
+              val goodTint = if (rawTint.luminance() < 0.45f) lerp(rawTint, Color.White, 0.55f) else rawTint
+              val bg by animateColorAsState(Color(accent.first), tween(800), label = "bg")
+              val tint by animateColorAsState(goodTint, tween(800), label = "tint")
+              val playCorner by animateDpAsState(if (playing) 24.dp else 36.dp, tween(250), label = "corner")
+
+              var nav by remember { mutableIntStateOf(2) }
+              var sub by remember { mutableIntStateOf(0) }
+              var query by remember { mutableStateOf("") }
+              var showTune by remember { mutableStateOf(false) }
+              val pad = PaddingValues(bottom = 190.dp)
+              val emptyMsg = if (loaded) "No se encontró música en el teléfono" else "Permite el acceso a tu música para empezar"
+
+              Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(bg.copy(alpha = 0.8f), Color(0xFF0A0A10), Color(0xFF0A0A10))))) {
+                  Column(Modifier.fillMaxSize().statusBarsPadding()) {
+                      when (nav) {
+                          0 -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp, 8.dp, 24.dp, 180.dp)) {
+                              Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                  Text("Reproduciendo", color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                  Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                      IcoBtn(I.HEART, 40.dp, 20.dp, if (isFav) Color(0xFFFF6B8B) else Color.White.copy(alpha = 0.6f)) {
+                                          if (cur != null) toggleFav(cur.id)
+                                      }
+                                      IcoBtn(I.TUNE, 40.dp, 20.dp) { showTune = true }
+                                  }
+                              }
+                              Cover(cur, Modifier.padding(top = 12.dp).fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(28.dp)).glass())
+                              Text(cur?.title ?: "Elige una canción", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 20.dp))
+                              Text(cur?.artist ?: "Abre Library y toca una canción", color = Color.White.copy(alpha = 0.7f), fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                              Column(Modifier.padding(top = 12.dp)) {
+                                  WavySeek(posS, durS, playing, tint) { f -> ctl.seekTo((f * durS.floatValue).toLong()) }
+                                  TimeRow(posS, durS)
+                              }
+                              Row(Modifier.fillMaxWidth().padding(top = 18.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                  IcoBtn(I.SHUFFLE, 48.dp, 22.dp, if (shuffle) tint else Color.White.copy(alpha = 0.7f)) { ctl.shuffleModeEnabled = !shuffle }
+                                  Pill(72.dp, 60.dp, 30.dp, Color.White.copy(alpha = 0.12f), { ctl.seekToPrevious() }) { Ico(I.PREV, Color.White, 28.dp) }
+                                  Pill(112.dp, 72.dp, playCorner, tint, { if (cur == null) play(songs.shuffled(), 0) else toggle() }) {
+                                      Ico(if (playing) I.PAUSE else I.PLAY, Color(0xFF12121A), 36.dp)
+                                  }
+                                  Pill(72.dp, 60.dp, 30.dp, Color.White.copy(alpha = 0.12f), { ctl.seekToNext() }) { Ico(I.NEXT, Color.White, 28.dp) }
+                                  IcoBtn(
+                                      if (repeatMode == Player.REPEAT_MODE_ONE) I.REPEAT_ONE else I.REPEAT, 48.dp, 22.dp,
+                                      if (repeatMode != Player.REPEAT_MODE_OFF) tint else Color.White.copy(alpha = 0.7f)
+                                  ) { ctl.repeatMode = nextRepeat(repeatMode) }
+                              }
+                          }
+                          1 -> Column(Modifier.fillMaxSize()) {
+                              Text("Browse", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(20.dp, 16.dp, 20.dp, 8.dp))
+                              BasicTextField(
+                                  value = query,
+                                  onValueChange = { v -> query = v },
+                                  singleLine = true,
+                                  textStyle = TextStyle(color = Color.White, fontSize = 16.sp),
+                                  cursorBrush = SolidColor(Color.White),
+                                  modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth()
+                                      .clip(RoundedCornerShape(14.dp))
+                                      .background(Color.White.copy(alpha = 0.08f))
+                                      .glass().padding(14.dp),
+                                  decorationBox = { inner ->
+                                      Box {
+                                          if (query.isEmpty()) Text("Buscar canción o artista", color = Color.Gray, fontSize = 16.sp)
+                                          inner()
+                                      }
+                                  }
+                              )
+                              val res = songs.filter { query.isBlank() || it.title.contains(query, true) || it.artist.contains(query, true) }
+                              if (res.isEmpty()) {
+                                  Empty(if (songs.isEmpty()) emptyMsg else "Sin resultados")
+                              } else {
+                                  LazyColumn(Modifier.padding(top = 8.dp), contentPadding = pad) {
+                                      itemsIndexed(res) { i, s -> SongRow(i + 1, s, s.artist) { play(res, i) } }
+                                  }
+                              }
+                          }
+                          else -> Column(Modifier.fillMaxSize()) {
+                              Column(Modifier.padding(20.dp, 16.dp, 20.dp, 0.dp)) {
+                                  Text("Library", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+                                  Segments(listOf("Songs", "Albums", "Artists", "Favs"), sub) { sub = it }
+                              }
+                              when (sub) {
+                                  0 -> {
+                                      if (songs.isEmpty()) {
+                                          Empty(emptyMsg)
+                                      } else {
+                                          LazyColumn(Modifier.padding(top = 8.dp), contentPadding = pad) {
+                                              itemsIndexed(songs) { i, s -> SongRow(i + 1, s, s.artist) { play(songs, i) } }
+                                          }
+                                      }
+                                  }
+                                  1 -> {
+                                      val albums = songs.groupBy { it.albumId }.values.toList()
+                                      LazyVerticalGrid(
+                                          columns = GridCells.Fixed(2),
+                                          contentPadding = PaddingValues(20.dp, 14.dp, 20.dp, 190.dp),
+                                          horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                          verticalArrangement = Arrangement.spacedBy(16.dp)
+                                      ) {
+                                          itemsIndexed(albums) { _, a ->
+                                              Column(Modifier.glass().clickable { play(a, 0) }) {
+                                                  Cover(a[0], Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(10.dp)))
+                                                  Text(a[0].album, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
+                                                  Text(a[0].artist, color = Color.Gray, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                              }
+                                          }
+                                      }
+                                  }
+                                  2 -> {
+                                      val artists = songs.groupBy { it.artist }.values.toList()
+                                      LazyColumn(Modifier.padding(top = 8.dp), contentPadding = pad) {
+                                          itemsIndexed(artists) { i, a ->
+                                              SongRow(i + 1, a[0].copy(title = a[0].artist), a.size.toString() + " canciones") { play(a, 0) }
+                                          }
+                                      }
+                                  }
+                                  else -> {
+                                      val fl = songs.filter { it.id.toString() in favs }
+                                      if (fl.isEmpty()) {
+                                          Empty("Toca el corazón en el reproductor para guardar tus favoritas")
+                                      } else {
+                                          LazyColumn(Modifier.padding(top = 8.dp), contentPadding = pad) {
+                                              itemsIndexed(fl) { i, s -> SongRow(i + 1, s, s.artist) { play(fl, i) } }
+                                          }
+                                      }
+                                  }
+                              }
+                          }
+                      }
+                  }
+                  Column(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 10.dp)) {
+                      val now = cur
+                      if (now != null) {
+                          val card = RoundedCornerShape(18.dp)
+                          Column(
+                              Modifier.padding(horizontal = 12.dp).clip(card)
+                                  .background(Color.Black.copy(alpha = 0.55f))
+                                  .border(1.dp, Color.White.copy(alpha = 0.15f), card)
+                                  .glass().clickable { nav = 0 }
+                          ) {
+                              Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                  Cover(now, Modifier.size(44.dp).clip(RoundedCornerShape(8.dp)))
+                                  Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
+                                      Text(now.title, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                      Text(now.artist, color = Color.Gray, fontSize = 11.sp, maxLines = 1)
+                                  }
+                                  Pill(52.dp, 40.dp, 20.dp, tint, { toggle() }) {
+                                      Ico(if (playing) I.PAUSE else I.PLAY, Color(0xFF12121A), 22.dp)
+                                  }
+                              }
+                              Box(
+                                  Modifier.fillMaxWidth().height(2.dp).background(Color.White.copy(alpha = 0.15f)).drawBehind {
+                                      val f = (posS.floatValue / durS.floatValue.coerceAtLeast(1f)).coerceIn(0f, 1f)
+                                      drawRect(Color.White, size = Size(size.width * f, size.height))
+                                  }
+                              )
+                          }
+                      }
+                      val pill = RoundedCornerShape(50)
+                      Row(
+                          Modifier.padding(top = 8.dp).align(Alignment.CenterHorizontally).clip(pill)
+                              .background(Color.Black.copy(alpha = 0.6f))
+                              .border(1.dp, Color.White.copy(alpha = 0.2f), pill)
+                              .glass().padding(horizontal = 8.dp, vertical = 6.dp)
+                      ) {
+                          val tabs = listOf(I.HOME to "Home", I.SEARCH to "Browse", I.LIBRARY to "Library")
+                          tabs.forEachIndexed { i, tab ->
+                              val on = nav == i
+                              val c = if (on) Color(0xFFD9A6FF) else Color.White.copy(alpha = 0.7f)
+                              Column(
+                                  Modifier.clip(pill)
+                                      .background(if (on) Color(0xFFC77DFF).copy(alpha = 0.3f) else Color.Transparent)
+                                      .clickable { nav = i }
+                                      .padding(horizontal = 22.dp, vertical = 6.dp),
+                                  horizontalAlignment = Alignment.CenterHorizontally
+                              ) {
+                                  Ico(tab.first, c, 22.dp)
+                                  Text(tab.second, color = c, fontSize = 10.sp)
+                              }
+                          }
+                      }
+                  }
+                  if (showTune) TunePanel(ctl, tint) { showTune = false }
+              }
+              BackHandler(enabled = showTune) { showTune = false }
+          }
+
+          @Composable
+          fun Root() {
+              val ctl = rememberController()
+              Box(Modifier.fillMaxSize().background(Color(0xFF0A0A10))) {
+                  if (ctl != null) App(ctl)
+              }
+          }
+
+          class MainActivity : ComponentActivity() {
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  enableEdgeToEdge(
+                      statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+                      navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+                  )
+                  setContent { Root() }
+              }
+          }
+          EOF
+          cat > app/src/main/java/com/velum/player/Data.kt <<'EOF'
+          package com.velum.player
+
+          import android.content.ContentUris
+          import android.content.Context
+          import android.graphics.Bitmap
+          import android.net.Uri
+          import android.provider.MediaStore
+          import android.util.LruCache
+          import android.util.Size
+          import kotlinx.coroutines.Dispatchers
+          import kotlinx.coroutines.withContext
+
+          data class Song(val id: Long, val title: String, val artist: String, val album: String, val albumId: Long) {
+              val uri: Uri get() = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id)
+          }
+
+          object Art {
+              private val cache = LruCache<Long, Bitmap>(80)
+              suspend fun get(ctx: Context, s: Song): Bitmap? = withContext(Dispatchers.IO) {
+                  val hit = cache.get(s.id)
+                  if (hit != null) {
+                      hit
+                  } else {
+                      val b = runCatching { ctx.contentResolver.loadThumbnail(s.uri, Size(400, 400), null) }.getOrNull()
+                      if (b != null) cache.put(s.id, b)
+                      b
+                  }
+              }
+          }
+
+          // Detecta sola toda la música del teléfono (MediaStore), sin elegir carpeta
+          fun loadSongs(ctx: Context): List<Song> {
+              val out = mutableListOf<Song>()
+              val proj = arrayOf(
+                  MediaStore.Audio.Media._ID,
+                  MediaStore.Audio.Media.TITLE,
+                  MediaStore.Audio.Media.ARTIST,
+                  MediaStore.Audio.Media.ALBUM,
+                  MediaStore.Audio.Media.ALBUM_ID
+              )
+              val sel = MediaStore.Audio.Media.IS_MUSIC + " != 0 AND " + MediaStore.Audio.Media.DURATION + " > 30000"
+              ctx.contentResolver.query(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, proj, sel, null, null)?.use { c ->
+                  while (c.moveToNext()) {
+                      val artist = c.getString(2)
+                      out.add(
+                          Song(
+                              c.getLong(0),
+                              c.getString(1) ?: "Sin título",
+                              if (artist == null || artist == "<unknown>") "Artista desconocido" else artist,
+                              c.getString(3) ?: "Álbum",
+                              c.getLong(4)
+                          )
+                      )
+                  }
+              }
+              return out.sortedBy { it.title.lowercase() }
+          }
+          EOF
+          cat > app/src/main/java/com/velum/player/PlaybackService.kt <<'EOF'
+          package com.velum.player
+
+          import android.app.PendingIntent
+          import android.content.Context
+          import android.content.Intent
+          import android.graphics.Bitmap
+          import android.graphics.BitmapFactory
+          import android.media.AudioManager
+          import android.media.audiofx.BassBoost
+          import android.media.audiofx.Equalizer
+          import android.net.Uri
+          import android.os.Handler
+          import android.os.Looper
+          import android.util.Size
+          import androidx.compose.runtime.getValue
+          import androidx.compose.runtime.mutableLongStateOf
+          import androidx.compose.runtime.setValue
+          import androidx.media3.common.AudioAttributes
+          import androidx.media3.common.C
+          import androidx.media3.common.util.BitmapLoader
+          import androidx.media3.common.util.UnstableApi
+          import androidx.media3.exoplayer.ExoPlayer
+          import androidx.media3.session.MediaSession
+          import androidx.media3.session.MediaSessionService
+          import com.google.common.util.concurrent.ListenableFuture
+          import com.google.common.util.concurrent.MoreExecutors
+          import java.util.concurrent.Executors
+
+          // Carga la carátula desde el archivo de audio para la notificación y la pantalla bloqueada
+          @OptIn(UnstableApi::class)
+          class ThumbLoader(private val ctx: Context) : BitmapLoader {
+              private val exec = MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor())
+              override fun supportsMimeType(mimeType: String): Boolean = true
+              override fun decodeBitmap(data: ByteArray): ListenableFuture<Bitmap> =
+                  exec.submit<Bitmap> { BitmapFactory.decodeByteArray(data, 0, data.size) }
+              override fun loadBitmap(uri: Uri): ListenableFuture<Bitmap> =
+                  exec.submit<Bitmap> { ctx.contentResolver.loadThumbnail(uri, Size(512, 512), null) }
+          }
+
+          @OptIn(UnstableApi::class)
+          class PlaybackService : MediaSessionService() {
+              private var session: MediaSession? = null
+              private var eq: Equalizer? = null
+              private var bass: BassBoost? = null
+              private val handler = Handler(Looper.getMainLooper())
+              private val stopper = Runnable {
+                  session?.player?.pause()
+                  sleepEnd = 0L
+              }
+
+              companion object {
+                  @Volatile
+                  var instance: PlaybackService? = null
+                  var sleepEnd by mutableLongStateOf(0L)
+              }
+
+              override fun onCreate() {
+                  super.onCreate()
+                  instance = this
+                  val sp = getSharedPreferences("velum", Context.MODE_PRIVATE)
+                  val sid = (getSystemService(Context.AUDIO_SERVICE) as AudioManager).generateAudioSessionId()
+                  val player = ExoPlayer.Builder(this)
+                      .setAudioAttributes(
+                          AudioAttributes.Builder().setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).setUsage(C.USAGE_MEDIA).build(),
+                          true
+                      )
+                      .setHandleAudioBecomingNoisy(true)
+                      .setWakeMode(C.WAKE_MODE_LOCAL)
+                      .build()
+                  player.setAudioSessionId(sid)
+                  val open = PendingIntent.getActivity(
+                      this, 0,
+                      Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+                      PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                  )
+                  session = MediaSession.Builder(this, player)
+                      .setBitmapLoader(ThumbLoader(this))
+                      .setSessionActivity(open)
+                      .build()
+                  runCatching {
+                      val e = Equalizer(0, sid)
+                      e.setEnabled(true)
+                      eq = e
+                      val saved = sp.getString("eq", null)?.split(",")?.mapNotNull { it.toIntOrNull() }
+                      if (saved != null) {
+                          val lo = e.bandLevelRange[0].toInt()
+                          val hi = e.bandLevelRange[1].toInt()
+                          for (i in saved.indices) {
+                              if (i < e.numberOfBands.toInt()) e.setBandLevel(i.toShort(), saved[i].coerceIn(lo, hi).toShort())
+                          }
+                      }
+                  }
+                  runCatching {
+                      val bb = BassBoost(0, sid)
+                      bb.setEnabled(true)
+                      bass = bb
+                      if (bb.strengthSupported) bb.setStrength(sp.getInt("bass", 0).toShort())
+                  }
+              }
+
+              override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
+
+              override fun onTaskRemoved(rootIntent: Intent?) {
+                  val p = session?.player
+                  if (p == null || !p.playWhenReady || p.mediaItemCount == 0) stopSelf()
+              }
+
+              override fun onDestroy() {
+                  instance = null
+                  handler.removeCallbacks(stopper)
+                  sleepEnd = 0L
+                  eq?.release()
+                  bass?.release()
+                  session?.run {
+                      player.release()
+                      release()
+                  }
+                  session = null
+                  super.onDestroy()
+              }
+
+              // ---- Temporizador de apagado ----
+              fun setSleep(min: Int) {
+                  handler.removeCallbacks(stopper)
+                  if (min <= 0) {
+                      sleepEnd = 0L
+                  } else {
+                      sleepEnd = System.currentTimeMillis() + min * 60000L
+                      handler.postDelayed(stopper, min * 60000L)
+                  }
+              }
+
+              // ---- Ecualizador y graves ----
+              fun eqBands(): Int = eq?.numberOfBands?.toInt() ?: 0
+              fun eqRange(): Pair<Int, Int> {
+                  val r = eq?.bandLevelRange
+                  return if (r != null) Pair(r[0].toInt(), r[1].toInt()) else Pair(-1500, 1500)
+              }
+              fun eqFreq(b: Int): Int = (eq?.getCenterFreq(b.toShort()) ?: 0) / 1000
+              fun eqLevel(b: Int): Int = eq?.getBandLevel(b.toShort())?.toInt() ?: 0
+              fun setEqLevel(b: Int, level: Int) {
+                  runCatching { eq?.setBandLevel(b.toShort(), level.toShort()) }
+                  saveEq()
+              }
+              fun presetNames(): List<String> {
+                  val e = eq ?: return emptyList()
+                  return (0 until e.numberOfPresets.toInt()).map { e.getPresetName(it.toShort()) }
+              }
+              fun usePreset(i: Int) {
+                  runCatching { eq?.usePreset(i.toShort()) }
+                  saveEq()
+              }
+              fun bassLevel(): Int = bass?.roundedStrength?.toInt() ?: 0
+              fun setBass(v: Int) {
+                  runCatching { bass?.setStrength(v.coerceIn(0, 1000).toShort()) }
+                  getSharedPreferences("velum", Context.MODE_PRIVATE).edit().putInt("bass", v.coerceIn(0, 1000)).apply()
+              }
+              private fun saveEq() {
+                  val e = eq ?: return
+                  val s = (0 until e.numberOfBands.toInt()).joinToString(",") { e.getBandLevel(it.toShort()).toString() }
+                  getSharedPreferences("velum", Context.MODE_PRIVATE).edit().putString("eq", s).apply()
+              }
+          }
+          EOF
+
+      - name: Compilar APK
+        run: gradle assembleDebug --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Velum-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
