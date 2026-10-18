@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="AppTheme" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">#0E0C13</item>
+        <item name="android:navigationBarColor">#0E0C13</item>
+        <item name="android:windowBackground">@color/velum_bg</item>
+        <item name="android:colorAccent">#ECC77F</item>
+    </style>
+</resources>

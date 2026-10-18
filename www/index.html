@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#0e0c13">
+  <meta name="color-scheme" content="dark">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Velum">
+  <meta name="description" content="Velum Music: tu música local con diseño premium.">
+  <title>Velum Music</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+
+    <main id="views">
+      <section class="tab-view" data-tab="home"></section>
+      <section class="tab-view" data-tab="library" hidden></section>
+      <section class="tab-view" data-tab="playlists" hidden></section>
+      <section class="tab-view" data-tab="search" hidden></section>
+    </main>
+
+    <div class="bottom-fade" aria-hidden="true"></div>
+
+    <div id="mini" class="mini glass" hidden>
+      <div class="mini-progress"><i></i></div>
+      <div class="mini-art art"></div>
+      <div class="mini-text">
+        <div class="mini-title"></div>
+        <div class="mini-sub"></div>
+      </div>
+      <button class="icon-btn mini-play" aria-label="Reproducir o pausar"></button>
+      <button class="icon-btn mini-next" aria-label="Siguiente"></button>
+    </div>
+
+    <nav id="tabbar">
+      <div class="tabs glass">
+        <span class="tab-blob" aria-hidden="true"></span>
+        <button class="tab" data-tab="home" aria-label="Inicio"><span class="ti"></span><span class="tl">Inicio</span></button>
+        <button class="tab" data-tab="library" aria-label="Biblioteca"><span class="ti"></span><span class="tl">Biblioteca</span></button>
+        <button class="tab" data-tab="playlists" aria-label="Listas"><span class="ti"></span><span class="tl">Listas</span></button>
+      </div>
+      <button class="tab-search glass" data-tab="search" aria-label="Buscar"></button>
+    </nav>
+
+    <section id="player" class="player" aria-hidden="true">
+      <div class="np-bg"><img alt=""><i class="np-tint"></i><i class="np-veil"></i></div>
+      <div class="np-inner">
+        <div class="np-grab"><i></i></div>
+        <header class="np-head">
+          <button class="icon-btn np-close" aria-label="Cerrar"></button>
+          <div class="np-from"><small>Reproduciendo de</small><b></b></div>
+          <button class="icon-btn np-more" aria-label="Más opciones"></button>
+        </header>
+        <div class="np-stage">
+          <div class="np-art-wrap"><div class="np-art art"></div></div>
+          <div class="np-panel np-lyrics" hidden></div>
+          <div class="np-panel np-queue" hidden></div>
+        </div>
+        <div class="np-meta">
+          <div class="np-titles">
+            <div class="np-title"><span></span></div>
+            <button class="np-artist"></button>
+          </div>
+          <button class="icon-btn np-like" aria-label="Me gusta"></button>
+        </div>
+        <div class="np-progress">
+          <div class="slider seek" role="slider" aria-label="Posición"><div class="track"><i class="fill"></i></div><i class="knob"></i></div>
+          <div class="np-times"><span class="t-cur">0:00</span><span class="np-badge"></span><span class="t-rem">-0:00</span></div>
+        </div>
+        <div class="np-controls">
+          <button class="icon-btn np-shuffle" aria-label="Aleatorio"></button>
+          <button class="icon-btn big np-prev" aria-label="Anterior"></button>
+          <button class="icon-btn huge np-play" aria-label="Reproducir o pausar"></button>
+          <button class="icon-btn big np-next" aria-label="Siguiente"></button>
+          <button class="icon-btn np-repeat" aria-label="Repetir"></button>
+        </div>
+        <div class="np-volume">
+          <span class="vi-low"></span>
+          <div class="slider vol" role="slider" aria-label="Volumen"><div class="track"><i class="fill"></i></div><i class="knob"></i></div>
+          <span class="vi-high"></span>
+        </div>
+        <footer class="np-foot">
+          <button class="icon-btn np-lyr" aria-label="Letra"></button>
+          <button class="icon-btn np-sleep" aria-label="Temporizador"></button>
+          <button class="icon-btn np-eq" aria-label="Ecualizador"></button>
+          <button class="icon-btn np-q" aria-label="Cola"></button>
+        </footer>
+      </div>
+    </section>
+
+    <div id="sheets"></div>
+    <div id="toast" class="toast glass" hidden></div>
+    <input id="dir-input" type="file" webkitdirectory directory multiple hidden>
+  </div>
+
+  <script src="tags.js"></script>
+  <script src="db.js"></script>
+  <script src="library.js"></script>
+  <script src="player.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

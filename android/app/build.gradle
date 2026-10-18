@@ -1,0 +1,56 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'com.velum.music'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.velum.music'
+        minSdk 24
+        targetSdk 34
+        def run = System.getenv('GITHUB_RUN_NUMBER') ?: '1'
+        versionCode = 100 + run.toInteger()
+        versionName = "1.0." + run
+    }
+
+    signingConfigs {
+        // Llave fija para que cada versión nueva se instale encima de la anterior sin perder tus listas.
+        app {
+            storeFile file('velum.keystore')
+            storePassword 'velummusic'
+            keyAlias 'velum'
+            keyPassword 'velummusic'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.app
+        }
+        debug { signingConfig signingConfigs.app }
+    }
+
+    sourceSets {
+        main { assets.srcDirs = ['../../www-assets'] }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+// Copia la app web (velum/www) dentro del APK.
+tasks.register('copyWeb', Copy) {
+    from '../../www'
+    into '../../www-assets/www'
+}
+preBuild.dependsOn copyWeb
+
+dependencies {
+    implementation 'androidx.core:core:1.13.1'
+    // Controles en la notificación, pantalla bloqueada y auriculares
+    implementation 'androidx.media:media:1.7.0'
+    implementation platform('org.jetbrains.kotlin:kotlin-bom:1.8.22')
+}
