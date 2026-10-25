@@ -62,7 +62,7 @@ public class MainActivity extends Activity {
         prefs = getSharedPreferences("velum", MODE_PRIVATE);
 
         web = new WebView(this);
-        web.setBackgroundColor(0xFF0E0C13);
+        web.setBackgroundColor(0xFF07070A);
         web.setHapticFeedbackEnabled(true);
         web.setOverScrollMode(WebView.OVER_SCROLL_NEVER);
         setContentView(web);
@@ -456,6 +456,19 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void haptic() {
             runOnUiThread(() -> { if (web != null) web.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP); });
+        }
+
+        // Barra de estado y de navegación del color del tema
+        @JavascriptInterface
+        public void setBarColor(String hex) {
+            runOnUiThread(() -> {
+                try {
+                    int c = android.graphics.Color.parseColor(hex);
+                    getWindow().setStatusBarColor(c);
+                    getWindow().setNavigationBarColor(c);
+                    if (web != null) web.setBackgroundColor(c);
+                } catch (Exception ignored) { }
+            });
         }
 
         @JavascriptInterface

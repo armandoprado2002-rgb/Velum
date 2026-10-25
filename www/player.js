@@ -280,6 +280,28 @@
     save();
   }
 
+  // Si la lectura del archivo falla o se corta a mitad de la canción, la retoma en el mismo punto
+  // en lugar de saltar a la siguiente.
+  let rec = { id: '', n: 0, at: 0 }, resumeAt = 0;
+  function recover(a, reason) {
+    const t = P.current();
+    if (!t) return false;
+    const pos = Math.max(lastT, a.currentTime || 0, resumeAt);
+    const known = Math.max(t.duration || 0, isFinite(a.duration) ? a.duration : 0);
+    if (reason === 'ended' && !(known && pos > 1 && pos < known - 4)) return false;
+    if (reason === 'error' && pos < 1) return false;
+    if (rec.id !== t.id || Math.abs(rec.at - pos) > 5) rec = { id: t.id, n: 0, at: pos };
+    if (rec.n >= (reason === 'ended' ? 1 : 3)) return false;
+    rec.n++;
+    resumeAt = pos;
+    const base = a.src.split('#')[0];
+    a.addEventListener('loadedmetadata', () => { try { a.currentTime = pos; } catch (e) { } }, { once: true });
+    a.src = base + '#t=' + pos.toFixed(2);
+    const pr = a.play();
+    if (pr && pr.catch) pr.catch(() => { });
+    return true;
+  }
+
   function skipOnError() {
     errors++;
     if (errors >= Math.min(P.queue.length, 8)) { errors = 0; P.playing = false; emit('state'); return; }
@@ -368,7 +390,7 @@
   }
 
   // ---------- Conteo de reproducciones ----------
-  function resetCounters() { listened = 0; lastT = 0; counted = false; }
+  function resetCounters() { listened = 0; lastT = 0; counted = false; resumeAt = 0; }
   function countPlay() {
     if (counted) return;
     counted = true;
@@ -388,6 +410,7 @@
     a.addEventListener('timeupdate', () => {
       if (i !== cur) return;
       const ct = a.currentTime, d = a.duration;
+      if (resumeAt) { if (ct < resumeAt - 1.5) return; resumeAt = 0; lastT = ct; }
       const delta = ct - lastT;
       if (delta > 0 && delta < 2 && P.playing) {
         listened += delta;
@@ -406,6 +429,7 @@
     });
     a.addEventListener('ended', () => {
       if (i !== cur) return;
+      if (recover(a, 'ended')) return;
       countPlay();
       if (P.sleep && P.sleep.track) { P.sleep = null; emit('sleep'); P.playing = false; emit('state'); return; }
       if (P.repeat === 'one') { a.currentTime = 0; resetCounters(); play(); return; }
@@ -416,6 +440,7 @@
     });
     a.addEventListener('error', () => {
       if (i !== cur || !a.getAttribute('src')) return;
+      if (recover(a, 'error')) return;
       emit('error', { track: P.current() });
       skipOnError();
     });

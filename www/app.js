@@ -78,8 +78,24 @@
   const DEFAULTS = {
     crossfade: 0, gapless: true, autoplay: true, speed: 1, volume: 1, engine: true,
     eq: { on: false, preset: 'flat', gains: P.EQ_PRESETS.flat.g.slice(), preamp: 0 },
-    hideShort: false, haptics: true, songSort: 'title', albumSort: 'title'
+    hideShort: false, haptics: true, songSort: 'title', albumSort: 'title', theme: 'obsidiana'
   };
+  const THEMES = {
+    obsidiana: { name: 'Obsidiana', bg: '#07070a', sw: 'linear-gradient(135deg,#1b1a1f,#07070a)', dot: 'linear-gradient(135deg,#fbecc6,#b98a43)', glow: 'rgba(232,197,130,.8)' },
+    violeta: { name: 'Violeta', bg: '#0e0c13', sw: 'linear-gradient(135deg,#2a2140,#0e0c13)', dot: 'linear-gradient(135deg,#a77af7,#f0cf8c)', glow: 'rgba(167,122,247,.8)' },
+    onix: { name: 'Ónix', bg: '#050505', sw: 'linear-gradient(135deg,#222,#050505)', dot: 'linear-gradient(135deg,#fff,#9da1ab)', glow: 'rgba(255,255,255,.6)' },
+    zafiro: { name: 'Zafiro', bg: '#04070f', sw: 'linear-gradient(135deg,#13234a,#04070f)', dot: 'linear-gradient(135deg,#8fb4ff,#6fd8ff)', glow: 'rgba(112,160,255,.8)' },
+    rubi: { name: 'Rubí', bg: '#0b0406', sw: 'linear-gradient(135deg,#3a1220,#0b0406)', dot: 'linear-gradient(135deg,#ff8aa6,#ffc684)', glow: 'rgba(255,120,150,.8)' },
+    esmeralda: { name: 'Esmeralda', bg: '#030907', sw: 'linear-gradient(135deg,#0f3427,#030907)', dot: 'linear-gradient(135deg,#6ee8b8,#e6d184)', glow: 'rgba(94,226,176,.8)' }
+  };
+  function applyTheme(name) {
+    const th = THEMES[name] ? name : 'obsidiana';
+    document.documentElement.dataset.theme = th;
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.content = THEMES[th].bg;
+    try { if (native && native.setBarColor) native.setBarColor(THEMES[th].bg); } catch (e) { }
+    try { localStorage.setItem('velum.theme', th); } catch (e) { }
+  }
   const S = { settings: null, playlists: [], likes: new Set(), plays: {}, history: [], stats: {}, recent: [] };
 
   async function loadState() {
@@ -246,7 +262,7 @@
     const isRoot = !stacks[def.tab].length;
     el.innerHTML = `<header class="nav">${isRoot ? '' : `<button class="nav-btn back" data-act="back" aria-label="Atrás">${icon('chevL')}<span class="back-label">${esc(def.backLabel || '')}</span></button>`}<span class="spacer"></span><div class="nav-actions"></div><div class="nav-title"></div></header><div class="scroller"></div>`;
     const pg = Object.assign({}, def, { el, nav: $('.nav', el), sc: $('.scroller', el), dirty: false });
-    pg.sc.addEventListener('scroll', () => pg.nav.classList.toggle('scrolled', pg.sc.scrollTop > 8), { passive: true });
+    pg.sc.addEventListener('scroll', () => { pg.nav.classList.toggle('scrolled', pg.sc.scrollTop > 8); onPageScroll(pg.sc); }, { passive: true });
     return pg;
   }
 
@@ -310,20 +326,70 @@
     tab = t;
     $$('.tab-view').forEach(v => { v.hidden = v.dataset.tab !== t; });
     $$('#tabbar [data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === t));
-    moveBlob();
+    document.body.classList.remove('compact');
+    moveBlob(true);
+    const sb = $('.tab-search');
+    if (t === 'search' && sb.animate) sb.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.14)', offset: .4 }, { transform: 'scale(.96)', offset: .75 }, { transform: 'scale(1)' }], { duration: 480, easing: 'ease-out' });
     const pg = top(t);
     if (pg && pg.dirty) { const y = pg.sc.scrollTop; renderPage(pg); pg.sc.scrollTop = y; }
   }
 
-  function moveBlob() {
+  // Indicador "líquido": se estira hacia la pestaña nueva y vuelve a su forma con un rebote
+  let blobPos = null;
+  function moveBlob(animate) {
     const blob = $('.tab-blob');
     const btn = $(`.tabs .tab[data-tab="${tab}"]`);
-    if (!btn) { blob.style.opacity = '0'; return; }
+    if (!btn) {
+      if (animate && blobPos && blob.animate) blob.animate([{ opacity: 1, transform: `translateX(${blobPos.x}px) scale(1)` }, { opacity: 0, transform: `translateX(${blobPos.x}px) scale(.6)` }], { duration: 260, easing: 'ease-in' });
+      blob.style.opacity = '0';
+      return;
+    }
+    const x = btn.offsetLeft - 5, w = btn.offsetWidth;
+    const from = blobPos && blob.style.opacity !== '0' ? blobPos : null;
     blob.style.opacity = '1';
-    blob.style.width = btn.offsetWidth + 'px';
-    blob.style.transform = `translateX(${btn.offsetLeft - 5}px)`;
+    blob.style.width = w + 'px';
+    blob.style.transform = `translateX(${x}px)`;
+    if (animate && blob.animate) {
+      if (from) {
+        const left = Math.min(from.x, x), span = Math.max(from.x + from.w, x + w) - left;
+        blob.animate([
+          { transform: `translateX(${from.x}px) scaleY(1)`, width: from.w + 'px' },
+          { transform: `translateX(${left}px) scaleY(.82)`, width: span + 'px', offset: 0.42 },
+          { transform: `translateX(${x - (x > from.x ? -6 : 6)}px) scaleY(1.06)`, width: w + 'px', offset: 0.75 },
+          { transform: `translateX(${x}px) scaleY(1)`, width: w + 'px' }
+        ], { duration: 560, easing: 'cubic-bezier(.3,.7,.3,1)' });
+      } else {
+        blob.animate([{ opacity: 0, transform: `translateX(${x}px) scale(.6)` }, { opacity: 1, transform: `translateX(${x}px) scale(1)` }], { duration: 420, easing: 'cubic-bezier(.34,1.56,.64,1)' });
+      }
+      const ti = $('.ti', btn);
+      if (ti.animate) ti.animate([
+        { transform: 'scale(1)' }, { transform: 'scale(1.3) translateY(-4px) rotate(-6deg)', offset: 0.35 },
+        { transform: 'scale(.92) translateY(1px)', offset: 0.7 }, { transform: 'scale(1)' }
+      ], { duration: 560, easing: 'ease-out' });
+    }
+    blobPos = { x, w };
   }
-  window.addEventListener('resize', moveBlob);
+  window.addEventListener('resize', () => moveBlob(false));
+
+  function ripple(btn, e) {
+    if (!btn.animate) return;
+    const r = btn.getBoundingClientRect();
+    const el = document.createElement('span');
+    el.className = 'ripple';
+    const size = Math.max(r.width, r.height) * 1.6;
+    el.style.cssText = `width:${size}px;height:${size}px;left:${e.clientX - r.left}px;top:${e.clientY - r.top}px`;
+    btn.appendChild(el);
+    el.animate([{ transform: 'translate(-50%,-50%) scale(0)', opacity: 1 }, { transform: 'translate(-50%,-50%) scale(1)', opacity: 0 }], { duration: 600, easing: 'ease-out' }).onfinish = () => el.remove();
+  }
+
+  // Al bajar en una lista la barra se compacta; al subir vuelve a su tamaño
+  let compactY = 0;
+  function onPageScroll(sc) {
+    const y = sc.scrollTop, d = y - compactY;
+    if (Math.abs(d) < 10) return;
+    document.body.classList.toggle('compact', d > 0 && y > 120);
+    compactY = y;
+  }
 
   function go(def) {
     if (np.open) closePlayer();
@@ -771,6 +837,9 @@
       </div>
       <div class="group-note">Velum lee MP3, M4A/AAC, FLAC, OGG, OPUS y WAV con sus carátulas. Las letras se toman de archivos .lrc con el mismo nombre de la canción y las listas de archivos .m3u.</div>
 
+      <div class="group-label">Apariencia</div>
+      <div class="list glass"><div class="themes">${Object.entries(THEMES).map(([k, t]) => `<button class="theme-sw ${S.settings.theme === k ? 'on' : ''}" data-act="theme" data-id="${k}" style="--sw-dot:${t.dot};--sw-glow:${t.glow}"><i style="background:${t.sw}"></i>${t.name}</button>`).join('')}</div></div>
+
       <div class="group-label">Reproducción</div>
       <div class="list glass">
         <div class="range-row"><div class="rr-top"><span>Fundido entre canciones</span><span class="cf-val">${S.settings.crossfade ? S.settings.crossfade + ' s' : 'Desactivado'}</span></div><div class="slider cf-slider"><div class="track"><i class="fill"></i></div><i class="knob"></i></div></div>
@@ -1067,7 +1136,7 @@
       <div class="eq-top"><span>Activar ecualizador</span><button class="switch ${eq.on ? 'on' : ''}" data-eqt></button></div>
       <div class="eq-wrap ${eq.on ? '' : 'eq-off'}">
         <div class="chips">${Object.entries(P.EQ_PRESETS).map(([k, p]) => `<button class="chip ${eq.preset === k ? 'on' : ''}" data-preset="${k}">${p.name}</button>`).join('')}</div>
-        <svg class="eq-graph" viewBox="0 -2 300 74" preserveAspectRatio="none"><defs><linearGradient id="eqg" x1="0" x2="1"><stop offset="0" stop-color="#a77af7"/><stop offset="1" stop-color="#f0cf8c"/></linearGradient><linearGradient id="eqa" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="rgba(167,122,247,.35)"/><stop offset="1" stop-color="rgba(167,122,247,0)"/></linearGradient></defs><path class="area"/><path class="line"/></svg>
+        <svg class="eq-graph" viewBox="0 -2 300 74" preserveAspectRatio="none"><defs><linearGradient id="eqg" x1="0" x2="1"><stop offset="0" style="stop-color:rgb(var(--a2))"/><stop offset="1" style="stop-color:rgb(var(--a1))"/></linearGradient><linearGradient id="eqa" x1="0" x2="0" y1="0" y2="1"><stop offset="0" style="stop-color:rgba(var(--a1),.35)"/><stop offset="1" style="stop-color:rgba(var(--a1),0)"/></linearGradient></defs><path class="area"/><path class="line"/></svg>
         <div class="eq-bands">${P.EQ_FREQS.map((f, i) => `<div class="eq-band"><b></b><div class="vslider" data-b="${i}"><i class="vfill"></i><i class="vknob"></i></div><small>${fl(f)}</small></div>`).join('')}</div>
       </div>
       ${S.settings.engine ? '' : `<div class="group-note" style="margin:6px 22px 4px">Activa “Motor de audio avanzado” en Ajustes para usar el ecualizador.</div>`}
@@ -1167,7 +1236,8 @@
     const [b, hq] = formatBadge(t);
     const badge = $('.np-badge');
     badge.textContent = b; badge.classList.toggle('hq', hq);
-    $('#mini').hidden = false;
+    const mini = $('#mini');
+    if (mini.hidden) { mini.hidden = false; mini.classList.add('pop'); setTimeout(() => mini.classList.remove('pop'), 700); }
     document.body.classList.remove('no-mini');
     updateLike();
     fitTitle();
@@ -1557,6 +1627,14 @@
     'sort-songs': () => sortMenu('songs'),
     'sort-albums': () => sortMenu('albums'),
     eq: () => eqSheet(),
+    theme: el => {
+      S.settings.theme = el.dataset.id;
+      persist.settings();
+      applyTheme(S.settings.theme);
+      $$('.theme-sw').forEach(b => b.classList.toggle('on', b === el));
+      const t = THEMES[S.settings.theme];
+      toast(`Tema ${t.name}`, 'sparkles');
+    },
     sleep: () => sleepMenu(),
     speed: () => speedMenu(),
     'toggle-setting': (el, e) => {
@@ -1676,6 +1754,7 @@
   // ---------- Arranque ----------
   async function start() {
     await loadState();
+    applyTheme(S.settings.theme);
     L.settings.hideShort = S.settings.hideShort;
     P.setSpeed(S.settings.speed);
     P.setVolume(S.settings.volume);
@@ -1685,7 +1764,10 @@
     $('.tab[data-tab="library"] .ti').innerHTML = icon('library');
     $('.tab[data-tab="playlists"] .ti').innerHTML = icon('playlist');
     $('.tab-search').innerHTML = icon('search');
-    $$('#tabbar [data-tab]').forEach(b => b.addEventListener('click', () => { haptic(); switchTab(b.dataset.tab); }));
+    $$('#tabbar [data-tab]').forEach(b => {
+      b.addEventListener('pointerdown', e => ripple(b, e));
+      b.addEventListener('click', () => { haptic(); switchTab(b.dataset.tab); });
+    });
     initPlayer();
 
     push({ render: renderHome, title: 'Inicio' }, 'home');
@@ -1693,7 +1775,7 @@
     push({ render: renderPlaylists, title: 'Listas' }, 'playlists');
     buildSearchPage();
     $$('#tabbar [data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
-    moveBlob();
+    moveBlob(false);
     document.body.classList.add('no-mini', 'paused');
 
     L.on('change', refreshAll);
