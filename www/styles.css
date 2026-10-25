@@ -535,7 +535,7 @@ body.paused .np-art { transform: scale(.84); }
 .q-clear { color: #fff; font-size: 14px; font-weight: 600; }
 
 /* ---------- Hojas, menús y diálogos ---------- */
-.sheet-wrap { position: absolute; inset: 0; z-index: 60; display: flex; flex-direction: column; justify-content: flex-end; }
+.sheet-wrap { position: absolute; inset: 0; z-index: 60; display: flex; flex-direction: column; justify-content: flex-end; padding-bottom: var(--kb, 0px); transition: padding-bottom .25s; }
 .sheet-dim { position: absolute; inset: 0; background: rgba(6, 4, 10, .55); opacity: 0; transition: opacity .3s; }
 .sheet-wrap.show .sheet-dim { opacity: 1; }
 .sheet-card {

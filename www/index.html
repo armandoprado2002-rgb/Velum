@@ -14,7 +14,17 @@
   <link rel="icon" type="image/png" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="stylesheet" href="styles.css">
-  <script>try { document.documentElement.dataset.theme = localStorage.getItem('velum.theme') || 'obsidiana'; } catch (e) { }</script>
+  <script>
+    try { document.documentElement.dataset.theme = localStorage.getItem('velum.theme') || 'obsidiana'; } catch (e) { }
+    // Android avisa cuánto miden la barra de estado, la de navegación y el teclado (pantalla completa)
+    window.VelumNative = window.VelumNative || {};
+    VelumNative.setInsets = function (top, bottom, kb) {
+      var r = document.documentElement.style;
+      r.setProperty('--sat', top + 'px');
+      r.setProperty('--sab', bottom + 'px');
+      r.setProperty('--kb', (kb || 0) + 'px');
+    };
+  </script>
 </head>
 <body>
   <div id="app">

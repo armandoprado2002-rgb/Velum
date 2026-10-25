@@ -9,6 +9,13 @@ import android.content.UriPermission;
 import android.content.pm.PackageManager;
 import android.content.res.AssetManager;
 import android.database.Cursor;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Color;
+import android.view.View;
+import android.view.Window;
+import android.view.WindowInsets;
+import android.view.WindowManager;
 import android.media.MediaMetadataRetriever;
 import android.net.Uri;
 import android.os.Build;
@@ -30,7 +37,9 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.ByteArrayInputStream;
+import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -61,8 +70,10 @@ public class MainActivity extends Activity {
         instance = this;
         prefs = getSharedPreferences("velum", MODE_PRIVATE);
 
+        goEdgeToEdge();
         web = new WebView(this);
         web.setBackgroundColor(0xFF07070A);
+        web.setOnApplyWindowInsetsListener((v, insets) -> { sendInsets(insets); return insets; });
         web.setHapticFeedbackEnabled(true);
         web.setOverScrollMode(WebView.OVER_SCROLL_NEVER);
         setContentView(web);
@@ -81,6 +92,11 @@ public class MainActivity extends Activity {
             @Override
             public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest req) {
                 return intercept(req);
+            }
+
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                if (lastInsets != null) js(lastInsets);
             }
 
             @Override
@@ -121,6 +137,46 @@ public class MainActivity extends Activity {
         stopService(new Intent(this, PlaybackService.class));
         if (web != null) { web.destroy(); web = null; }
         super.onDestroy();
+    }
+
+    private String lastInsets;
+
+    @SuppressWarnings("deprecation")
+    private void goEdgeToEdge() {
+        Window w = getWindow();
+        if (Build.VERSION.SDK_INT >= 30) w.setDecorFitsSystemWindows(false);
+        else w.getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+        w.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+        w.setStatusBarColor(Color.TRANSPARENT);
+        w.setNavigationBarColor(Color.TRANSPARENT);
+        if (Build.VERSION.SDK_INT >= 29) {
+            w.setStatusBarContrastEnforced(false);
+            w.setNavigationBarContrastEnforced(false);
+        }
+        if (Build.VERSION.SDK_INT >= 28) {
+            WindowManager.LayoutParams lp = w.getAttributes();
+            lp.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+            w.setAttributes(lp);
+        }
+    }
+
+    // Le dice a la app cuánto miden la barra de estado, la de navegación y el teclado
+    @SuppressWarnings("deprecation")
+    private void sendInsets(WindowInsets in) {
+        int top, bottom, kb = 0;
+        if (Build.VERSION.SDK_INT >= 30) {
+            android.graphics.Insets bars = in.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+            top = bars.top; bottom = bars.bottom;
+            kb = Math.max(0, in.getInsets(WindowInsets.Type.ime()).bottom - bottom);
+        } else {
+            top = in.getSystemWindowInsetTop();
+            bottom = in.getStableInsetBottom();
+            kb = Math.max(0, in.getSystemWindowInsetBottom() - bottom);
+        }
+        float d = getResources().getDisplayMetrics().density;
+        lastInsets = String.format(Locale.ROOT, "window.VelumNative && VelumNative.setInsets && VelumNative.setInsets(%.1f,%.1f,%.1f)", top / d, bottom / d, kb / d);
+        js(lastInsets);
     }
 
     static void js(String code) {
@@ -334,22 +390,56 @@ public class MainActivity extends Activity {
         return new WebResourceResponse(mime, null, 200, "OK", h, in);
     }
 
-    // Lector de Android (respaldo): carátula incrustada en el archivo
+    // Carátula incrustada, leída por Android y guardada reducida en la caché (rápida al desplazarse)
     private WebResourceResponse embeddedArt(Uri uri) {
-        MediaMetadataRetriever r = new MediaMetadataRetriever();
+        File dir = new File(getCacheDir(), "art");
+        if (!dir.exists()) dir.mkdirs();
+        String key = Integer.toHexString(uri.toString().hashCode()) + "_" + uri.toString().length();
+        File jpg = new File(dir, key + ".jpg"), none = new File(dir, key + ".none");
         try {
-            r.setDataSource(this, uri);
-            byte[] pic = r.getEmbeddedPicture();
-            if (pic == null || pic.length == 0) return notFound();
-            String mime = pic.length > 3 && (pic[0] & 0xFF) == 0x89 && pic[1] == 'P' ? "image/png" : "image/jpeg";
+            if (!jpg.exists() && !none.exists()) {
+                byte[] pic = null;
+                MediaMetadataRetriever r = new MediaMetadataRetriever();
+                try {
+                    r.setDataSource(this, uri);
+                    pic = r.getEmbeddedPicture();
+                } catch (Exception ignored) {
+                } finally {
+                    try { r.release(); } catch (Exception ignored) { }
+                }
+                Bitmap bmp = pic == null ? null : decodeScaled(pic, 640);
+                if (bmp == null) { none.createNewFile(); return notFound(); }
+                File tmp = new File(dir, key + ".tmp");
+                try (FileOutputStream out = new FileOutputStream(tmp)) { bmp.compress(Bitmap.CompressFormat.JPEG, 88, out); }
+                bmp.recycle();
+                if (!tmp.renameTo(jpg)) return notFound();
+            }
+            if (!jpg.exists()) return notFound();
             Map<String, String> h = new HashMap<>();
-            h.put("Cache-Control", "no-store");
-            return new WebResourceResponse(mime, null, 200, "OK", h, new ByteArrayInputStream(pic));
+            h.put("Cache-Control", "max-age=86400");
+            return new WebResourceResponse("image/jpeg", null, 200, "OK", h, new FileInputStream(jpg));
         } catch (Exception e) {
             return notFound();
-        } finally {
-            try { r.release(); } catch (Exception ignored) { }
         }
+    }
+
+    private static Bitmap decodeScaled(byte[] data, int max) {
+        BitmapFactory.Options o = new BitmapFactory.Options();
+        o.inJustDecodeBounds = true;
+        BitmapFactory.decodeByteArray(data, 0, data.length, o);
+        if (o.outWidth <= 0 || o.outHeight <= 0) return null;
+        int sample = 1;
+        while (Math.max(o.outWidth, o.outHeight) / (sample * 2) >= max) sample *= 2;
+        o = new BitmapFactory.Options();
+        o.inSampleSize = sample;
+        Bitmap b = BitmapFactory.decodeByteArray(data, 0, data.length, o);
+        if (b == null) return null;
+        int big = Math.max(b.getWidth(), b.getHeight());
+        if (big <= max) return b;
+        float k = (float) max / big;
+        Bitmap s = Bitmap.createScaledBitmap(b, Math.round(b.getWidth() * k), Math.round(b.getHeight() * k), true);
+        if (s != b) b.recycle();
+        return s;
     }
 
     // Lector de Android (respaldo): etiquetas del archivo
@@ -458,14 +548,13 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> { if (web != null) web.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP); });
         }
 
-        // Barra de estado y de navegación del color del tema
+        // Fondo del color del tema (las barras del sistema son transparentes)
         @JavascriptInterface
         public void setBarColor(String hex) {
             runOnUiThread(() -> {
                 try {
-                    int c = android.graphics.Color.parseColor(hex);
-                    getWindow().setStatusBarColor(c);
-                    getWindow().setNavigationBarColor(c);
+                    // Las barras son transparentes (pantalla completa); solo cambia el fondo
+                    int c = Color.parseColor(hex);
                     if (web != null) web.setBackgroundColor(c);
                 } catch (Exception ignored) { }
             });

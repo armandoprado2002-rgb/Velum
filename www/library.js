@@ -253,6 +253,19 @@
     return m ? { artist: m[1].trim(), title: m[2].trim() } : { title: base || name };
   }
 
+  // En Android las carátulas las saca el propio teléfono (con su lector y una caché en disco)
+  // y se muestran directamente; en el navegador se guardan en la base local.
+  function artKeyFor(path, folder, stored) {
+    const cover = Lib.covers.get(folder.toLowerCase());
+    if (native) {
+      if (stored && stored.startsWith('p')) return 'n:' + path;
+      if (cover) return 'f:' + cover.p;
+      return 'n:' + path;
+    }
+    if (stored) return stored;
+    return cover ? 'f:' + cover.p : '';
+  }
+
   function makeTrack(f) {
     const name = baseOf(f.p);
     const folder = dirOf(f.p);
@@ -269,7 +282,7 @@
       albumArtist: t.albumArtist || '',
       genre: t.genre || '', year: t.year || '', trackNo: t.trackNo || 0, discNo: t.discNo || 0,
       duration: t.duration || (rec && rec.dur) || 0,
-      art: valid ? rec.art || '' : '', color: valid ? rec.color || null : null,
+      art: artKeyFor(f.p, folder, valid ? rec.art || '' : ''), color: valid ? rec.color || null : null,
       lyricsText: t.lyrics || '',
       tagged: !!valid, noTags: valid && !t.title
     };
@@ -280,11 +293,11 @@
     Lib.lrc = new Map();
     Lib.covers = new Map();
     Lib.m3u = [];
+    for (const f of files) if (f.u) fileRefs.set(f.p, f.u);
     for (const f of files) {
-      if (f.u) fileRefs.set(f.p, f.u);
       const ext = extOf(f.p);
-      if (AUDIO.has(ext)) Lib.tracks.set(f.p, makeTrack(f));
-      else if (ext === 'lrc') Lib.lrc.set(noExt(f.p).toLowerCase(), f.p);
+      if (AUDIO.has(ext)) continue;
+      if (ext === 'lrc') Lib.lrc.set(noExt(f.p).toLowerCase(), f.p);
       else if (ext === 'm3u' || ext === 'm3u8') Lib.m3u.push(f.p);
       else if (IMAGES.test(f.p)) {
         const dir = dirOf(f.p).toLowerCase();
@@ -295,6 +308,7 @@
         if (!cur || score < cur.score) Lib.covers.set(dir, { p: f.p, score });
       }
     }
+    for (const f of files) if (AUDIO.has(extOf(f.p))) Lib.tracks.set(f.p, makeTrack(f));
     if (!keepRefs) {
       const keep = new Set(files.map(f => f.p));
       for (const k of Array.from(fileRefs.keys())) if (!keep.has(k)) fileRefs.delete(k);
@@ -334,7 +348,9 @@
       }
       al.ids.push(t.id);
       al.artists.add(primaryArtist(t.artist));
-      if (!al.art && t.art) { al.art = t.art; al.color = t.color; }
+      // Prefiere una carátula segura: imagen de la carpeta o una incrustada que ya se encontró
+      const rank = !t.art ? 0 : !t.art.startsWith('n:') ? 3 : t.color ? 2 : 1;
+      if (rank > (al.artRank || 0)) { al.art = t.art; al.color = t.color; al.artRank = rank; }
       if (!al.year && t.year) al.year = t.year;
       if (!al.genre && t.genre) al.genre = t.genre;
       al.added = Math.max(al.added, t.added);
@@ -404,10 +420,17 @@
     c.width = w; c.height = h;
     const g = c.getContext('2d');
     g.drawImage(bmp, 0, 0, w, h);
-    // color principal (vivo) para teñir el reproductor
+    const color = pickColor(bmp);
+    if (bmp.close) bmp.close();
+    const out = await new Promise(res => c.toBlob(res, 'image/jpeg', 0.88));
+    return { blob: out, color };
+  }
+
+  // Color principal (vivo) para teñir el reproductor
+  function pickColor(src) {
     const sc = document.createElement('canvas'); sc.width = sc.height = 24;
     const sg = sc.getContext('2d', { willReadFrequently: true });
-    sg.drawImage(bmp, 0, 0, 24, 24);
+    sg.drawImage(src, 0, 0, 24, 24);
     const px = sg.getImageData(0, 0, 24, 24).data;
     let R = 0, G = 0, B = 0, W = 0;
     for (let i = 0; i < px.length; i += 4) {
@@ -421,9 +444,7 @@
     let color = [Math.round(R / W), Math.round(G / W), Math.round(B / W)];
     const mx = Math.max(...color);
     if (mx < 110) color = color.map(v => Math.round(v * 110 / Math.max(mx, 1)));
-    if (bmp.close) bmp.close();
-    const out = await new Promise(res => c.toBlob(res, 'image/jpeg', 0.88));
-    return { blob: out, color };
+    return color;
   }
 
   async function storeArt(key, srcBlob) {
@@ -522,6 +543,13 @@
   Lib.artUrl = function (key) {
     if (!key) return Promise.resolve(null);
     if (artUrls.has(key)) return artUrls.get(key);
+    if (native && (key.startsWith('n:') || key.startsWith('f:'))) {
+      const u = fileRefs.get(key.slice(2));
+      const url = !u ? null : key.startsWith('n:') ? '/__velum/art?u=' + encodeURIComponent(u) : mediaUrl(u);
+      const pr = Promise.resolve(url);
+      artUrls.set(key, pr);
+      return pr;
+    }
     const p = DB.get('art', key).then(async rec => {
       if (rec) return URL.createObjectURL(rec.blob);
       if (key.startsWith('f:')) {
@@ -537,7 +565,28 @@
     artUrls.set(key, p);
     return p;
   };
-  Lib.artColor = async key => { const r = key && await DB.get('art', key).catch(() => null); return r ? r.color : null; };
+  // Color principal de una carátula (desde la base local o leyendo la imagen)
+  const colorCache = new Map();
+  Lib.artColor = async key => {
+    if (!key) return null;
+    if (colorCache.has(key)) return colorCache.get(key);
+    let color = null;
+    const r = await DB.get('art', key).catch(() => null);
+    if (r) color = r.color;
+    else {
+      const url = await Lib.artUrl(key);
+      if (url) {
+        try {
+          const img = new Image();
+          img.src = url;
+          await img.decode();
+          color = pickColor(img);
+        } catch (e) { }
+      }
+    }
+    colorCache.set(key, color);
+    return color;
+  };
   Lib.artDataUrl = async function (key, size = 320) {
     const url = await Lib.artUrl(key);
     if (!url) return '';

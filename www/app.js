@@ -135,6 +135,7 @@
       let img = el.querySelector(':scope > img');
       if (!img) { img = document.createElement('img'); img.alt = ''; img.decoding = 'async'; el.appendChild(img); }
       img.onload = () => img.classList.add('on');
+      img.onerror = () => img.remove();
       img.src = url;
       if (img.complete && img.naturalWidth) img.classList.add('on');
     });
@@ -1248,7 +1249,7 @@
     const img = $('.np-bg img');
     const url = await L.artUrl(key);
     if (P.current() !== t) return;
-    if (url) { img.onload = () => img.classList.add('on'); if (img.src !== url) { img.classList.remove('on'); img.src = url; } else img.classList.add('on'); }
+    if (url) { img.onload = () => img.classList.add('on'); img.onerror = () => img.classList.remove('on'); if (img.src !== url) { img.classList.remove('on'); img.src = url; } else img.classList.add('on'); }
     else { img.classList.remove('on'); img.removeAttribute('src'); }
     const c = L.colorOf(t) || await L.artColor(key) || [124, 88, 200];
     applyColor(c);
