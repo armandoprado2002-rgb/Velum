@@ -2,7 +2,7 @@
 (function (global) {
   'use strict';
 
-  const META_VERSION = 3;
+  const META_VERSION = 4;
   const AUDIO = new Set(['mp3', 'm4a', 'aac', 'flac', 'ogg', 'oga', 'opus', 'wav', 'webm', 'weba', 'mp4', '3gp', 'm4b']);
   const IMAGES = /\.(jpe?g|png|webp)$/i;
   const COVER_NAMES = ['cover', 'folder', 'front', 'album', 'albumart', 'albumartsmall', 'artwork'];
@@ -257,11 +257,7 @@
   // y se muestran directamente; en el navegador se guardan en la base local.
   function artKeyFor(path, folder, stored) {
     const cover = Lib.covers.get(folder.toLowerCase());
-    if (native) {
-      if (stored && stored.startsWith('p')) return 'n:' + path;
-      if (cover) return 'f:' + cover.p;
-      return 'n:' + path;
-    }
+    if (native) return 'n:' + path;
     if (stored) return stored;
     return cover ? 'f:' + cover.p : '';
   }
@@ -543,10 +539,29 @@
   Lib.artUrl = function (key) {
     if (!key) return Promise.resolve(null);
     if (artUrls.has(key)) return artUrls.get(key);
-    if (native && (key.startsWith('n:') || key.startsWith('f:'))) {
+    if (native && key.startsWith('f:')) {
       const u = fileRefs.get(key.slice(2));
-      const url = !u ? null : key.startsWith('n:') ? '/__velum/art?u=' + encodeURIComponent(u) : mediaUrl(u);
-      const pr = Promise.resolve(url);
+      const pr = Promise.resolve(u ? mediaUrl(u) : null);
+      artUrls.set(key, pr);
+      return pr;
+    }
+    if (native && key.startsWith('n:')) {
+      // 1) carátula incrustada (lector de Android o el nuestro), 2) la que encontró la app, 3) imagen de la carpeta
+      const path = key.slice(2);
+      const pr = (async () => {
+        const u = fileRefs.get(path);
+        if (u) {
+          const url = '/__velum/art?u=' + encodeURIComponent(u);
+          try { const r = await fetch(url); if (r.ok) return url; } catch (e) { }
+        }
+        const rec = metaCache.get(path);
+        if (rec && rec.art && rec.art.startsWith('p')) {
+          const d = await DB.get('art', rec.art).catch(() => null);
+          if (d) return URL.createObjectURL(d.blob);
+        }
+        const c = Lib.covers.get(dirOf(path).toLowerCase());
+        return c && fileRefs.has(c.p) ? mediaUrl(fileRefs.get(c.p)) : null;
+      })().catch(() => null);
       artUrls.set(key, pr);
       return pr;
     }

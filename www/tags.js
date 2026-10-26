@@ -76,6 +76,13 @@
     return out.subarray(0, j);
   }
 
+  function nextOk(b, q, idLen) {
+    if (q === b.length) return true;
+    if (q < 0 || q > b.length) return false;
+    if (b[q] === 0) return true;
+    return q + idLen <= b.length && /^[A-Z0-9]+$/.test(str(b, q, idLen));
+  }
+
   function parseID3v2(tag, t) {
     const ver = tag[3];
     const flags = tag[5];
@@ -94,6 +101,11 @@
       const id = str(body, p, idLen);
       if (!/^[A-Z0-9]+$/.test(id)) break;
       let size = ver === 2 ? u24(body, p + 3) : ver === 4 ? syncsafe(body, p + 4) : u32(body, p + 4);
+      if (ver === 4) {
+        // iTunes escribe tamaños normales (no synchsafe) en v2.4: si el siguiente marco no cuadra, prueba así
+        const plain = u32(body, p + 4);
+        if (plain !== size && !nextOk(body, p + hdrLen + size, idLen) && nextOk(body, p + hdrLen + plain, idLen)) size = plain;
+      }
       const fflags = ver === 2 ? 0 : body[p + 9];
       let data = body.subarray(p + hdrLen, p + hdrLen + size);
       p += hdrLen + size;
@@ -117,7 +129,7 @@
             o = 4;
           } else {
             const e = strEnd(data, 1, 0);
-            mime = str(data, 1, e - 1).toLowerCase() || 'image/jpeg';
+            mime = str(data, 1, e - 1).toLowerCase().replace('image/jpg', 'image/jpeg') || 'image/jpeg';
             if (!mime.includes('/')) mime = 'image/' + (mime === 'png' ? 'png' : 'jpeg');
             o = e + 1;
           }

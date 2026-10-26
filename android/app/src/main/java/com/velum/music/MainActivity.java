@@ -394,7 +394,7 @@ public class MainActivity extends Activity {
     private WebResourceResponse embeddedArt(Uri uri) {
         File dir = new File(getCacheDir(), "art");
         if (!dir.exists()) dir.mkdirs();
-        String key = Integer.toHexString(uri.toString().hashCode()) + "_" + uri.toString().length();
+        String key = Integer.toHexString(uri.toString().hashCode()) + "_" + uri.toString().length() + "_v2";
         File jpg = new File(dir, key + ".jpg"), none = new File(dir, key + ".none");
         try {
             if (!jpg.exists() && !none.exists()) {
@@ -408,6 +408,13 @@ public class MainActivity extends Activity {
                     try { r.release(); } catch (Exception ignored) { }
                 }
                 Bitmap bmp = pic == null ? null : decodeScaled(pic, 640);
+                if (bmp == null) {
+                    // Respaldo para MP3: nuestro propio lector de etiquetas ID3
+                    try (InputStream in = getContentResolver().openInputStream(uri)) {
+                        byte[] id3 = in == null ? null : Id3Art.read(in);
+                        if (id3 != null) bmp = decodeScaled(id3, 640);
+                    } catch (Exception ignored) { }
+                }
                 if (bmp == null) { none.createNewFile(); return notFound(); }
                 File tmp = new File(dir, key + ".tmp");
                 try (FileOutputStream out = new FileOutputStream(tmp)) { bmp.compress(Bitmap.CompressFormat.JPEG, 88, out); }
