@@ -78,8 +78,9 @@
   const DEFAULTS = {
     crossfade: 0, gapless: true, autoplay: true, speed: 1, volume: 1, engine: true,
     eq: { on: false, preset: 'flat', gains: P.EQ_PRESETS.flat.g.slice(), preamp: 0 },
-    hideShort: false, haptics: true, songSort: 'title', albumSort: 'title', theme: 'obsidiana'
+    hideShort: false, haptics: true, songSort: 'title', albumSort: 'title', theme: 'obsidiana', appIcon: 'obsidiana'
   };
+  const APP_ICONS = { obsidiana: 'Obsidiana', violeta: 'Violeta', grafito: 'Grafito' };
   const THEMES = {
     obsidiana: { name: 'Obsidiana', bg: '#07070a', sw: 'linear-gradient(135deg,#1b1a1f,#07070a)', dot: 'linear-gradient(135deg,#fbecc6,#b98a43)', glow: 'rgba(232,197,130,.8)' },
     violeta: { name: 'Violeta', bg: '#0e0c13', sw: 'linear-gradient(135deg,#2a2140,#0e0c13)', dot: 'linear-gradient(135deg,#a77af7,#f0cf8c)', glow: 'rgba(167,122,247,.8)' },
@@ -440,7 +441,7 @@
   const settingsBtn = `<button class="nav-btn round chip" data-act="settings" aria-label="Ajustes">${icon('gear')}</button>`;
 
   function welcomeHTML() {
-    return `<div class="welcome"><img src="icons/glyph.png" alt=""><div class="wordmark">VELUM</div><div class="wordmark-sub">MUSIC</div>
+    return `<div class="welcome"><img src="icons/mono-glyph.svg" alt=""><div class="wordmark">VELUM</div><div class="wordmark-sub">MUSIC</div>
       <p>Elige la carpeta donde guardas tu música. Velum la reconoce sola: canciones, álbumes, artistas, carátulas, letras (.lrc) y listas (.m3u).</p>
       <div class="actions"><button class="primary" data-act="add-folder">${icon('folder')}Elegir carpeta de música</button></div>
       <small>${native ? 'Se abrirá el selector de Android. Elige tu carpeta (por ejemplo “Music” o “Download”) y toca “Usar esta carpeta”.' : L.supportsHandles ? 'Tu navegador recordará la carpeta. Todo se queda en tu dispositivo.' : 'Tu música no sale de tu dispositivo.'}</small></div>`;
@@ -460,7 +461,7 @@
   }
 
   function renderHome() {
-    let html = `<h1 class="large-title brand-title"><img src="icons/glyph.png" alt="">Inicio</h1><p class="subtitle">${greeting()}</p><div class="scan-slot"></div>${reconnectHTML()}`;
+    let html = `<h1 class="large-title brand-title"><img src="icons/mono-glyph.svg" alt="">Inicio</h1><p class="subtitle">${greeting()}</p><div class="scan-slot"></div>${reconnectHTML()}`;
     if (!L.roots.length && !L.tracks.size) return { title: 'Inicio', actions: settingsBtn, html: html + welcomeHTML() };
     if (!L.sorted.length) {
       if (!L.scanning) html += emptyHTML('note', 'No encontramos canciones', 'Asegúrate de elegir la carpeta donde guardas tu música (MP3, M4A, FLAC, OGG, OPUS o WAV).', `<button class="chip on" data-act="add-folder">Elegir otra carpeta</button>`);
@@ -841,6 +842,10 @@
       <div class="group-label">Apariencia</div>
       <div class="list glass"><div class="themes">${Object.entries(THEMES).map(([k, t]) => `<button class="theme-sw ${S.settings.theme === k ? 'on' : ''}" data-act="theme" data-id="${k}" style="--sw-dot:${t.dot};--sw-glow:${t.glow}"><i style="background:${t.sw}"></i>${t.name}</button>`).join('')}</div></div>
 
+      <div class="group-label">Ícono de la app</div>
+      <div class="list glass"><div class="themes app-icons">${Object.entries(APP_ICONS).map(([k, n]) => `<button class="icon-sw ${S.settings.appIcon === k ? 'on' : ''}" data-act="app-icon" data-id="${k}"><img src="icons/mono-${k}.svg" alt="">${n}</button>`).join('')}</div></div>
+      <div class="group-note">${native ? 'El ícono cambia en tu pantalla de inicio en unos segundos. Si lo tenías como acceso directo, puede que tengas que volver a ponerlo desde el cajón de apps.' : 'El ícono del teléfono se puede cambiar en la app de Android.'}</div>
+
       <div class="group-label">Reproducción</div>
       <div class="list glass">
         <div class="range-row"><div class="rr-top"><span>Fundido entre canciones</span><span class="cf-val">${S.settings.crossfade ? S.settings.crossfade + ' s' : 'Desactivado'}</span></div><div class="slider cf-slider"><div class="track"><i class="fill"></i></div><i class="knob"></i></div></div>
@@ -870,7 +875,7 @@
         <button class="list-row" data-act="clear-cache"><span class="li">${icon('refresh')}</span><span class="lt">Volver a leer etiquetas y carátulas</span></button>
         <button class="list-row danger" data-act="reset-stats"><span class="li" style="color:#ff7a8a">${icon('trash')}</span><span class="lt">Borrar historial y estadísticas</span></button>
       </div>
-      <div class="welcome" style="min-height:0;padding:34px 20px 10px"><img src="icons/glyph.png" alt="" style="width:64px;height:64px"><div class="wordmark" style="font-size:22px">VELUM</div><div class="wordmark-sub">MUSIC · 1.0</div><small>Tu música se queda en tu dispositivo.</small></div>`;
+      <div class="welcome" style="min-height:0;padding:34px 20px 10px"><img src="icons/mono-glyph.svg" alt="" style="width:64px;height:64px"><div class="wordmark" style="font-size:22px">VELUM</div><div class="wordmark-sub">MUSIC · 1.0</div><small>Tu música se queda en tu dispositivo.</small></div>`;
     const after = pg => {
       const el = $('.cf-slider', pg.sc);
       setSlider(el, S.settings.crossfade / 12);
@@ -1628,6 +1633,15 @@
     'sort-songs': () => sortMenu('songs'),
     'sort-albums': () => sortMenu('albums'),
     eq: () => eqSheet(),
+    'app-icon': el => {
+      const k = el.dataset.id;
+      if (S.settings.appIcon === k) return;
+      S.settings.appIcon = k;
+      persist.settings();
+      $$('.icon-sw').forEach(b => b.classList.toggle('on', b === el));
+      try { if (native && native.setAppIcon) native.setAppIcon(k); } catch (e) { }
+      toast(`Ícono ${APP_ICONS[k]}`, 'sparkles');
+    },
     theme: el => {
       S.settings.theme = el.dataset.id;
       persist.settings();
@@ -1756,6 +1770,8 @@
   async function start() {
     await loadState();
     applyTheme(S.settings.theme);
+    // El ícono activo lo sabe Android (por si se cambió en otra versión)
+    try { if (native && native.getAppIcon) S.settings.appIcon = native.getAppIcon(); } catch (e) { }
     L.settings.hideShort = S.settings.hideShort;
     P.setSpeed(S.settings.speed);
     P.setVolume(S.settings.volume);

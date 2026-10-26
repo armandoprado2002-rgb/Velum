@@ -2,6 +2,7 @@ package com.velum.music;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.ComponentName;
 import android.content.ContentResolver;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -565,6 +566,37 @@ public class MainActivity extends Activity {
                     if (web != null) web.setBackgroundColor(c);
                 } catch (Exception ignored) { }
             });
+        }
+
+        // Cambia el ícono de la app en el teléfono (Obsidiana, Violeta o Grafito)
+        @JavascriptInterface
+        public void setAppIcon(String name) {
+            String target = "violeta".equals(name) ? "IconVioleta" : "grafito".equals(name) ? "IconGrafito" : "IconObsidiana";
+            PackageManager pm = getPackageManager();
+            String[] all = {"IconObsidiana", "IconVioleta", "IconGrafito"};
+            try {
+                // Primero se activa el nuevo para que la app nunca se quede sin ícono
+                pm.setComponentEnabledSetting(new ComponentName(MainActivity.this, getPackageName() + "." + target),
+                        PackageManager.COMPONENT_ENABLED_STATE_ENABLED, PackageManager.DONT_KILL_APP);
+                for (String a : all) {
+                    if (a.equals(target)) continue;
+                    pm.setComponentEnabledSetting(new ComponentName(MainActivity.this, getPackageName() + "." + a),
+                            PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP);
+                }
+            } catch (Exception ignored) { }
+        }
+
+        @JavascriptInterface
+        public String getAppIcon() {
+            PackageManager pm = getPackageManager();
+            String[][] all = {{"IconVioleta", "violeta"}, {"IconGrafito", "grafito"}};
+            for (String[] a : all) {
+                try {
+                    int st = pm.getComponentEnabledSetting(new ComponentName(MainActivity.this, getPackageName() + "." + a[0]));
+                    if (st == PackageManager.COMPONENT_ENABLED_STATE_ENABLED) return a[1];
+                } catch (Exception ignored) { }
+            }
+            return "obsidiana";
         }
 
         @JavascriptInterface
