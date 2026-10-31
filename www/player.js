@@ -33,10 +33,14 @@
     on(ev, f) { (listeners[ev] = listeners[ev] || []).push(f); }
   };
 
-  const els = [new Audio(), new Audio()];
+  // En Android suena el reproductor nativo del teléfono (más estable en segundo plano)
+  const NATIVE = !!global.NativeAudio;
+  P.nativeAudio = NATIVE;
+  const els = NATIVE ? [new global.NativeAudio(0), new global.NativeAudio(1)] : [new Audio(), new Audio()];
   els.forEach(a => { a.preload = 'auto'; a.crossOrigin = 'anonymous'; a.preservesPitch = true; });
   let cur = 0;
   let preloaded = null;    // id preparado en el otro reproductor
+  let failedPreload = null; // la que falló al prepararse (no se reintenta en bucle)
   let fading = false;
   let errors = 0;
   let listened = 0, lastT = 0, counted = false;
@@ -50,7 +54,7 @@
   let ctx = null, gains = [], bands = [], preamp, master, analyser;
   // Solo se crea cuando hace falta (ecualizador o fundido) y siempre desde un toque del usuario
   function graph() {
-    if (ctx || !P.settings.engine || !(P.settings.eq.on || P.settings.crossfade > 0)) return ctx;
+    if (ctx || NATIVE || !P.settings.engine || !(P.settings.eq.on || P.settings.crossfade > 0)) return ctx;
     const AC = global.AudioContext || global.webkitAudioContext;
     if (!AC) return null;
     try {
@@ -96,11 +100,17 @@
     const peak = eq.on ? Math.max(0, ...eq.gains) : 0;
     preamp.gain.setTargetAtTime(Math.pow(10, ((eq.on ? eq.preamp : 0) - peak * 0.6) / 20), t, 0.05);
   }
-  P.setEQ = function (eq) { P.settings.eq = eq; applyEQ(); emit('settings'); };
+  P.setEQ = function (eq) {
+    P.settings.eq = eq;
+    if (NATIVE) global.NativeAudioBridge.setEq({ on: !!eq.on, gains: eq.gains, freqs: EQ_FREQS });
+    else applyEQ();
+    emit('settings');
+  };
 
   function applyVolume() {
     const v = P.settings.volume * duckFactor * sleepFade;
     if (ctx) { master.gain.setTargetAtTime(v, ctx.currentTime, 0.03); els.forEach(a => { a.volume = 1; }); }
+    else if (NATIVE) els.forEach(a => { a.volume = v; });
     else { A().volume = v; }
   }
   P.setVolume = v => { P.settings.volume = Math.max(0, Math.min(1, v)); applyVolume(); emit('volume', P.settings.volume); };
@@ -108,6 +118,7 @@
   P.duck = on => { duckFactor = on ? 0.25 : 1; applyVolume(); };
 
   function setGain(i, v, ramp) {
+    if (NATIVE) { els[i].volume = P.settings.volume * duckFactor * sleepFade; return; }
     if (!ctx) { els[i].volume = v * P.settings.volume; return; }
     const g = gains[i].gain, t = ctx.currentTime;
     g.cancelScheduledValues(t);
@@ -353,10 +364,14 @@
     const n = nextIndex(false);
     if (n < 0 || n === P.index) return;
     const t = Lib.tracks.get(P.queue[n]);
-    if (!t || preloaded === t.id) return;
+    if (!t || preloaded === t.id || failedPreload === t.id) return;
     preloaded = t.id;
-    try { await setSrc(B(), t); setGain(1 - cur, 0); B().load(); }
-    catch (e) { preloaded = null; }
+    const from = cur;
+    try {
+      await setSrc(B(), t); setGain(1 - cur, 0); B().load();
+      // Android: la siguiente arranca sola al terminar esta, aunque la app esté dormida
+      if (NATIVE && cur === from && P.settings.gapless && !(P.sleep && P.sleep.track)) global.NativeAudioBridge.setNext(from, 1 - from);
+    } catch (e) { preloaded = null; }
   }
 
   function startFade() {
@@ -390,7 +405,7 @@
   }
 
   // ---------- Conteo de reproducciones ----------
-  function resetCounters() { listened = 0; lastT = 0; counted = false; resumeAt = 0; }
+  function resetCounters() { listened = 0; lastT = 0; counted = false; resumeAt = 0; failedPreload = null; }
   function countPlay() {
     if (counted) return;
     counted = true;
@@ -439,7 +454,9 @@
       load(true);
     });
     a.addEventListener('error', () => {
-      if (i !== cur || !a.getAttribute('src')) return;
+      // Si falló la siguiente que se estaba preparando, se olvida: al llegar su turno se carga de nuevo
+      if (i !== cur) { if (a.getAttribute('src') && !fading) { failedPreload = a.dataset.id; preloaded = null; a.dataset.id = ''; } return; }
+      if (!a.getAttribute('src')) return;
       if (recover(a, 'error')) return;
       emit('error', { track: P.current() });
       skipOnError();
@@ -451,7 +468,7 @@
   P.setSleep = function (minutes) {
     clearInterval(sleepTick);
     sleepFade = 1; applyVolume();
-    if (minutes === 'track') P.sleep = { track: true };
+    if (minutes === 'track') { P.sleep = { track: true }; dropPreload(); }
     else if (minutes > 0) { P.sleep = { end: Date.now() + minutes * 60000 }; sleepTick = setInterval(checkSleep, 1000); }
     else P.sleep = null;
     emit('sleep');

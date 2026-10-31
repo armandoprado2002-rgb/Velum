@@ -1,6 +1,6 @@
 /* Velum · funciona sin internet (versión web) */
-const CACHE = 'velum-v2';
-const FILES = ['./', 'index.html', 'styles.css', 'tags.js', 'db.js', 'library.js', 'player.js', 'app.js', 'manifest.webmanifest',
+const CACHE = 'velum-v3';
+const FILES = ['./', 'index.html', 'styles.css', 'tags.js', 'db.js', 'library.js', 'native-audio.js', 'player.js', 'app.js', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png', 'icons/mono-glyph.svg', 'icons/mono-obsidiana.svg', 'icons/mono-violeta.svg', 'icons/mono-grafito.svg', 'icons/apple-touch-icon.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES))); self.skipWaiting(); });
 self.addEventListener('activate', e => {

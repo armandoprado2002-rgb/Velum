@@ -41,7 +41,9 @@ public class PlaybackService extends Service {
     private static float speed = 1f;
 
     private MediaSessionCompat session;
-    private boolean noisyOn, foreground, mustStartForeground = true;
+    private AudioManager audio;
+    private android.media.AudioFocusRequest focusRequest;
+    private boolean hasFocus, resumeOnGain, noisyOn, foreground, mustStartForeground = true;
 
     // ---------- Llamadas desde la app ----------
     static void setMeta(Context ctx, String json) {
@@ -92,6 +94,7 @@ public class PlaybackService extends Service {
     public void onCreate() {
         super.onCreate();
         instance = this;
+        audio = (AudioManager) getSystemService(AUDIO_SERVICE);
         if (Build.VERSION.SDK_INT >= 26) {
             NotificationChannel ch = new NotificationChannel(CHANNEL, "Reproducción", NotificationManager.IMPORTANCE_LOW);
             ch.setShowBadge(false);
@@ -131,6 +134,7 @@ public class PlaybackService extends Service {
     @Override
     public void onDestroy() {
         instance = null;
+        abandonFocus();
         setNoisy(false);
         if (session != null) { session.setActive(false); session.release(); }
         stopForeground(true);
@@ -202,6 +206,7 @@ public class PlaybackService extends Service {
             }
         }
         if (playing) {
+            requestFocus();
             setNoisy(true);
         } else {
             setNoisy(false);
@@ -213,6 +218,51 @@ public class PlaybackService extends Service {
             if (!title.isEmpty()) nm.notify(NOTIF_ID, n);
             else nm.cancel(NOTIF_ID);
         }
+    }
+
+    // ---------- Foco de audio: pausa con llamadas, baja el volumen con avisos ----------
+    // (La música ahora la reproduce Android directamente, así que ya no compite con el WebView.)
+    private final AudioManager.OnAudioFocusChangeListener focusListener = change -> {
+        switch (change) {
+            case AudioManager.AUDIOFOCUS_LOSS:
+                hasFocus = false; resumeOnGain = false; command("pause", 0); break;
+            case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
+                resumeOnGain = playing; command("pause", 0); break;
+            case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK:
+                command("duck", 0); break;
+            case AudioManager.AUDIOFOCUS_GAIN:
+                hasFocus = true;
+                command("unduck", 0);
+                if (resumeOnGain) { resumeOnGain = false; command("play", 0); }
+                break;
+        }
+    };
+
+    @SuppressWarnings("deprecation")
+    private void requestFocus() {
+        if (hasFocus || audio == null) return;
+        int r;
+        if (Build.VERSION.SDK_INT >= 26) {
+            focusRequest = new android.media.AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                    .setAudioAttributes(new android.media.AudioAttributes.Builder()
+                            .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                            .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC).build())
+                    .setOnAudioFocusChangeListener(focusListener)
+                    .setWillPauseWhenDucked(false)
+                    .build();
+            r = audio.requestAudioFocus(focusRequest);
+        } else {
+            r = audio.requestAudioFocus(focusListener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN);
+        }
+        hasFocus = r == AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
+    }
+
+    @SuppressWarnings("deprecation")
+    private void abandonFocus() {
+        if (audio == null) return;
+        if (Build.VERSION.SDK_INT >= 26) { if (focusRequest != null) audio.abandonAudioFocusRequest(focusRequest); }
+        else audio.abandonAudioFocus(focusListener);
+        hasFocus = false;
     }
 
     // Pausa al desconectar audífonos

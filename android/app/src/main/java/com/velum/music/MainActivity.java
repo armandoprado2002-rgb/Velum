@@ -70,6 +70,7 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         instance = this;
         prefs = getSharedPreferences("velum", MODE_PRIVATE);
+        AudioEngine.I.init(this);
 
         goEdgeToEdge();
         web = new WebView(this);
@@ -136,6 +137,7 @@ public class MainActivity extends Activity {
     protected void onDestroy() {
         if (instance == this) instance = null;
         stopService(new Intent(this, PlaybackService.class));
+        AudioEngine.I.releaseAll();
         if (web != null) { web.destroy(); web = null; }
         super.onDestroy();
     }
@@ -539,6 +541,37 @@ public class MainActivity extends Activity {
                 catch (Exception e) { js("VelumNative.onFolderPicked(false)"); }
             });
         }
+
+        // ---------- Reproductor nativo (la música no suena dentro del WebView) ----------
+        @JavascriptInterface
+        public boolean nativeAudio() { return true; }
+
+        @JavascriptInterface
+        public void audioLoad(int slot, String uri, double startMs) { AudioEngine.I.load(slot, uri, (int) startMs); }
+
+        @JavascriptInterface
+        public void audioPlay(int slot) { AudioEngine.I.play(slot); }
+
+        @JavascriptInterface
+        public void audioPause(int slot) { AudioEngine.I.pause(slot); }
+
+        @JavascriptInterface
+        public void audioSeek(int slot, double ms) { AudioEngine.I.seek(slot, (int) ms); }
+
+        @JavascriptInterface
+        public void audioVolume(int slot, double v) { AudioEngine.I.volume(slot, (float) v); }
+
+        @JavascriptInterface
+        public void audioSpeed(double s) { AudioEngine.I.speed((float) s); }
+
+        @JavascriptInterface
+        public void audioSetNext(int from, int to) { AudioEngine.I.setNext(from, to); }
+
+        @JavascriptInterface
+        public void audioStop(int slot) { AudioEngine.I.stop(slot); }
+
+        @JavascriptInterface
+        public void setEq(String json) { AudioEngine.I.setEq(json); }
 
         @JavascriptInterface
         public void removeFolder(String id) { MainActivity.this.removeFolder(id); }

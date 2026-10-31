@@ -73,6 +73,8 @@
     dot: '<circle cx="12" cy="12" r="2"/>'
   };
   const icon = n => `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">${ICONS[n] || ''}</svg>`;
+  // Botón play/pausa que se transforma (liquid morph)
+  const MORPH = '<svg class="morph-ic" viewBox="0 0 24 24" aria-hidden="true"><path class="m1" d="M7.5 4.6 L13 8 L13 16 L7.5 19.4 Z"></path><path class="m2" d="M12.6 7.75 L20 12 L20 12 L12.6 16.25 Z"></path></svg>';
 
   // ---------- Estado guardado ----------
   const DEFAULTS = {
@@ -355,10 +357,10 @@
       if (from) {
         const left = Math.min(from.x, x), span = Math.max(from.x + from.w, x + w) - left;
         blob.animate([
-          { transform: `translateX(${from.x}px) scaleY(1)`, width: from.w + 'px' },
-          { transform: `translateX(${left}px) scaleY(.82)`, width: span + 'px', offset: 0.42 },
-          { transform: `translateX(${x - (x > from.x ? -6 : 6)}px) scaleY(1.06)`, width: w + 'px', offset: 0.75 },
-          { transform: `translateX(${x}px) scaleY(1)`, width: w + 'px' }
+          { transform: `translateX(${from.x}px) scaleY(1)`, width: from.w + 'px', borderRadius: '26px' },
+          { transform: `translateX(${left}px) scaleY(.8)`, width: span + 'px', borderRadius: x > from.x ? '18px 40px 40px 18px / 26px' : '40px 18px 18px 40px / 26px', offset: 0.42 },
+          { transform: `translateX(${x - (x > from.x ? -6 : 6)}px) scaleY(1.07)`, width: w + 'px', borderRadius: '30px 22px 30px 22px', offset: 0.75 },
+          { transform: `translateX(${x}px) scaleY(1)`, width: w + 'px', borderRadius: '26px' }
         ], { duration: 560, easing: 'cubic-bezier(.3,.7,.3,1)' });
       } else {
         blob.animate([{ opacity: 0, transform: `translateX(${x}px) scale(.6)` }, { opacity: 1, transform: `translateX(${x}px) scale(1)` }], { duration: 420, easing: 'cubic-bezier(.34,1.56,.64,1)' });
@@ -469,7 +471,7 @@
     }
     const cur = P.current();
     if (cur) {
-      html += `<div class="hero glass" data-act="open-player"><div class="hero-art">${art(L.artOf(cur), cur.album)}</div><div class="hero-t"><small>${P.playing ? 'Sonando ahora' : 'Continuar escuchando'}</small><b>${esc(cur.title)}</b><span>${esc(cur.artist)}</span></div><button class="play-fab hero-play" data-act="toggle" aria-label="Reproducir">${icon(P.playing ? 'pause' : 'play')}</button></div>`;
+      html += `<div class="hero glass" data-act="open-player"><div class="hero-art">${art(L.artOf(cur), cur.album)}</div><div class="hero-t"><small>${P.playing ? 'Sonando ahora' : 'Continuar escuchando'}</small><b>${esc(cur.title)}</b><span>${esc(cur.artist)}</span></div><button class="play-fab hero-play${P.playing ? ' is-playing' : ''}" data-act="toggle" aria-label="Reproducir o pausar">${MORPH}</button></div>`;
     }
     html += `<div class="section"><div class="quick">
       <button class="glass" data-act="shuffle-all"><span class="qi">${icon('shuffle')}</span><b>Aleatorio</b></button>
@@ -848,7 +850,7 @@
 
       <div class="group-label">Reproducción</div>
       <div class="list glass">
-        <div class="range-row"><div class="rr-top"><span>Fundido entre canciones</span><span class="cf-val">${S.settings.crossfade ? S.settings.crossfade + ' s' : 'Desactivado'}</span></div><div class="slider cf-slider"><div class="track"><i class="fill"></i></div><i class="knob"></i></div></div>
+        ${P.nativeAudio ? '' : `<div class="range-row"><div class="rr-top"><span>Fundido entre canciones</span><span class="cf-val">${S.settings.crossfade ? S.settings.crossfade + ' s' : 'Desactivado'}</span></div><div class="slider cf-slider"><div class="track"><i class="fill"></i></div><i class="knob"></i></div></div>`}
         ${toggleRow('gapless', 'Sin pausas entre canciones', 'infinity')}
         ${toggleRow('autoplay', 'Reproducción automática', 'sparkles')}
         <button class="list-row" data-act="speed"><span class="li">${icon('speed')}</span><span class="lt">Velocidad</span><span class="lv">${S.settings.speed}×</span><span class="chev">${icon('chevR')}</span></button>
@@ -859,9 +861,9 @@
       <div class="group-label">Sonido</div>
       <div class="list glass">
         <button class="list-row" data-act="eq"><span class="li">${icon('eq')}</span><span class="lt">Ecualizador</span><span class="lv">${eqLabel}</span><span class="chev">${icon('chevR')}</span></button>
-        ${toggleRow('engine', 'Motor de audio avanzado', 'sliders')}
+        ${P.nativeAudio ? '' : toggleRow('engine', 'Motor de audio avanzado', 'sliders')}
       </div>
-      <div class="group-note">El motor avanzado permite el ecualizador y el fundido. Si algún teléfono deja de sonar en segundo plano, desactívalo.</div>
+      <div class="group-note">${P.nativeAudio ? 'La música la reproduce Android directamente: sigue sonando con la pantalla apagada y pasa a la siguiente canción sin pausas.' : 'El motor avanzado permite el ecualizador y el fundido. Si algún teléfono deja de sonar en segundo plano, desactívalo.'}</div>
 
       <div class="group-label">Biblioteca</div>
       <div class="list glass">
@@ -878,6 +880,7 @@
       <div class="welcome" style="min-height:0;padding:34px 20px 10px"><img src="icons/mono-glyph.svg" alt="" style="width:64px;height:64px"><div class="wordmark" style="font-size:22px">VELUM</div><div class="wordmark-sub">MUSIC · 1.0</div><small>Tu música se queda en tu dispositivo.</small></div>`;
     const after = pg => {
       const el = $('.cf-slider', pg.sc);
+      if (!el) return;
       setSlider(el, S.settings.crossfade / 12);
       slider(el, {
         input: r => { const v = Math.round(r * 12); $('.cf-val', pg.sc).textContent = v ? v + ' s' : 'Desactivado'; setSlider(el, v / 12); },
@@ -1145,7 +1148,7 @@
         <svg class="eq-graph" viewBox="0 -2 300 74" preserveAspectRatio="none"><defs><linearGradient id="eqg" x1="0" x2="1"><stop offset="0" style="stop-color:rgb(var(--a2))"/><stop offset="1" style="stop-color:rgb(var(--a1))"/></linearGradient><linearGradient id="eqa" x1="0" x2="0" y1="0" y2="1"><stop offset="0" style="stop-color:rgba(var(--a1),.35)"/><stop offset="1" style="stop-color:rgba(var(--a1),0)"/></linearGradient></defs><path class="area"/><path class="line"/></svg>
         <div class="eq-bands">${P.EQ_FREQS.map((f, i) => `<div class="eq-band"><b></b><div class="vslider" data-b="${i}"><i class="vfill"></i><i class="vknob"></i></div><small>${fl(f)}</small></div>`).join('')}</div>
       </div>
-      ${S.settings.engine ? '' : `<div class="group-note" style="margin:6px 22px 4px">Activa “Motor de audio avanzado” en Ajustes para usar el ecualizador.</div>`}
+      ${S.settings.engine || P.nativeAudio ? '' : `<div class="group-note" style="margin:6px 22px 4px">Activa “Motor de audio avanzado” en Ajustes para usar el ecualizador.</div>`}
       <div style="height:12px"></div>`);
     const draw = () => {
       const d = eqPath(eq.gains);
@@ -1244,6 +1247,7 @@
     badge.textContent = b; badge.classList.toggle('hq', hq);
     const mini = $('#mini');
     if (mini.hidden) { mini.hidden = false; mini.classList.add('pop'); setTimeout(() => mini.classList.remove('pop'), 700); }
+    else { mini.classList.remove('wobble'); void mini.offsetWidth; mini.classList.add('wobble'); setTimeout(() => mini.classList.remove('wobble'), 750); }
     document.body.classList.remove('no-mini');
     updateLike();
     fitTitle();
@@ -1290,10 +1294,10 @@
   }
 
   function updateStateUI() {
-    const ic = icon(P.playing ? 'pause' : 'play');
-    $('.np-play').innerHTML = ic;
-    $('.mini-play').innerHTML = ic;
-    $$('.hero-play').forEach(b => { b.innerHTML = ic; });
+    $$('.np-play, .mini-play, .hero-play').forEach(b => {
+      if (!b.querySelector('.morph-ic')) b.innerHTML = MORPH;
+      b.classList.toggle('is-playing', P.playing);
+    });
     document.body.classList.toggle('paused', !P.playing);
     if (P.playing) startLoop();
   }
@@ -1342,7 +1346,7 @@
       const v = Math.pow(s / 7 / 255, 2.4);
       pulse = pulse * 0.75 + v * 0.25;
     } else pulse *= 0.9;
-    $('.np-art').style.setProperty('--pulse', pulse.toFixed(3));
+    $('.np-art-wrap').style.setProperty('--pulse', pulse.toFixed(3));
     if (P.playing || np.seeking || pulse > 0.01) raf = requestAnimationFrame(loop);
   }
 

@@ -696,3 +696,125 @@ body.paused .np-art { transform: scale(.84); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+/* =====================================================================
+   Liquid morph: formas que fluyen y cambian de forma
+   ===================================================================== */
+
+/* Manchas líquidas de fondo en cada página (solo transform: ligeras para el teléfono) */
+.page::before, .page::after {
+  content: ""; position: absolute; pointer-events: none; z-index: 0;
+  filter: blur(46px); opacity: .55; will-change: transform;
+}
+.page::before {
+  width: 92vw; height: 92vw; max-width: 620px; max-height: 620px; left: -30vw; top: -26vw;
+  background: radial-gradient(closest-side, rgba(var(--a2), .55), rgba(var(--a2), 0));
+  border-radius: 43% 57% 61% 39% / 44% 38% 62% 56%;
+  animation: liquidA 19s ease-in-out infinite alternate;
+}
+.page::after {
+  width: 70vw; height: 70vw; max-width: 480px; max-height: 480px; right: -28vw; top: 34vh;
+  background: radial-gradient(closest-side, rgba(var(--a1), .38), rgba(var(--a1), 0));
+  border-radius: 62% 38% 41% 59% / 55% 61% 39% 45%;
+  animation: liquidB 23s ease-in-out infinite alternate;
+}
+.page .scroller, .page .nav, .page .search-bar, .page .az { z-index: 1; }
+.page .nav { z-index: 5; }
+.page .search-bar { z-index: 6; }
+@keyframes liquidA {
+  0% { transform: translate3d(0, 0, 0) rotate(0deg) scale(1, 1); }
+  33% { transform: translate3d(9vw, 5vw, 0) rotate(70deg) scale(1.18, .9); }
+  66% { transform: translate3d(3vw, 12vw, 0) rotate(150deg) scale(.92, 1.15); }
+  100% { transform: translate3d(12vw, 2vw, 0) rotate(220deg) scale(1.1, 1.02); }
+}
+@keyframes liquidB {
+  0% { transform: translate3d(0, 0, 0) rotate(0deg) scale(1, 1); }
+  50% { transform: translate3d(-10vw, -8vh, 0) rotate(-110deg) scale(1.2, .86); }
+  100% { transform: translate3d(-4vw, 6vh, 0) rotate(-200deg) scale(.9, 1.12); }
+}
+
+/* Play ⇄ pausa: las dos mitades del triángulo se derriten en dos barras */
+.morph-ic { width: 24px; height: 24px; fill: currentColor; overflow: visible; }
+.morph-ic path { transition: d .45s cubic-bezier(.5, 1.6, .4, 1); }
+.morph-ic .m1 { d: path("M7.5 4.6 L13 8 L13 16 L7.5 19.4 Z"); }
+.morph-ic .m2 { d: path("M12.6 7.75 L20 12 L20 12 L12.6 16.25 Z"); }
+.is-playing .morph-ic .m1 { d: path("M6.5 4.5 L10.5 4.5 L10.5 19.5 L6.5 19.5 Z"); }
+.is-playing .morph-ic .m2 { d: path("M13.5 4.5 L17.5 4.5 L17.5 19.5 L13.5 19.5 Z"); }
+.np-controls .huge .morph-ic { width: 54px; height: 54px; }
+.mini .morph-ic { width: 28px; height: 28px; }
+.play-fab .morph-ic { width: 24px; height: 24px; }
+.np-play { position: relative; isolation: isolate; }
+.np-play::before {
+  content: ""; position: absolute; inset: 4px; z-index: -1;
+  background: rgba(255, 255, 255, .12); border-radius: 50%;
+  transition: border-radius .5s cubic-bezier(.5, 1.6, .4, 1), transform .5s cubic-bezier(.5, 1.6, .4, 1);
+}
+.np-play.is-playing::before { border-radius: 38% 62% 55% 45% / 47% 41% 59% 53%; animation: liquidBtn 6s ease-in-out infinite; }
+@keyframes liquidBtn {
+  0%, 100% { border-radius: 38% 62% 55% 45% / 47% 41% 59% 53%; transform: rotate(0deg) scale(1); }
+  33% { border-radius: 58% 42% 40% 60% / 54% 60% 40% 46%; transform: rotate(40deg) scale(1.05); }
+  66% { border-radius: 45% 55% 62% 38% / 40% 52% 48% 60%; transform: rotate(-30deg) scale(.97); }
+}
+
+/* Al tocar, los elementos de vidrio se aplastan como gota */
+.glass, .actions button, .chip, .card .art, .quick button, .list-row, .icon-sw img, .theme-sw i {
+  transition: transform .45s cubic-bezier(.5, 1.6, .4, 1), border-radius .45s cubic-bezier(.5, 1.6, .4, 1), background .3s, box-shadow .3s;
+}
+.quick button:active, .actions button:active, .hero:active, .top-result:active { transform: scale(.96, .93); border-radius: 24px 14px 24px 14px; }
+.card:active .art { transform: scale(.95, .92); border-radius: 26px 12px 26px 12px; }
+.chip:active { transform: scale(.92, .86); }
+
+/* Hojas y diálogos: entran estirándose como líquido */
+.sheet-wrap.show .sheet-card { animation: sheetLiquid .6s cubic-bezier(.3, 1.4, .5, 1); }
+.sheet-wrap.center.show .sheet-card { animation: dialogLiquid .5s cubic-bezier(.3, 1.5, .5, 1); }
+@keyframes sheetLiquid {
+  0% { transform: translateY(100%) scale(.9, 1.15); border-radius: 60px 60px 30px 30px; }
+  60% { transform: translateY(-6px) scale(1.02, .97); border-radius: 26px 26px 30px 30px; }
+  100% { transform: none; border-radius: 30px; }
+}
+@keyframes dialogLiquid {
+  0% { transform: scale(.4, .6); border-radius: 50%; opacity: 0; }
+  55% { transform: scale(1.05, .95); border-radius: 36px; opacity: 1; }
+  100% { transform: none; border-radius: 30px; }
+}
+
+/* Mini reproductor: tiembla como gota al cambiar de canción */
+.mini.wobble { animation: miniWobble .7s cubic-bezier(.3, 1.4, .5, 1); }
+@keyframes miniWobble {
+  0% { transform: scale(1); border-radius: 22px; }
+  25% { transform: scale(1.04, .9); border-radius: 30px 16px 30px 16px; }
+  50% { transform: scale(.97, 1.05); border-radius: 18px 28px 18px 28px; }
+  100% { transform: scale(1); border-radius: 22px; }
+}
+
+/* Aviso: cae como una gota que se estira en píldora */
+.toast.show { animation: toastDrop .6s cubic-bezier(.3, 1.5, .5, 1); }
+@keyframes toastDrop {
+  0% { transform: translate(-50%, -120%) scale(.3, .5); border-radius: 50%; }
+  60% { transform: translate(-50%, 4px) scale(1.04, .94); }
+  100% { transform: translate(-50%, 0) scale(1); border-radius: 22px; }
+}
+
+/* Reproductor: halo líquido del color de la carátula que cambia de forma detrás */
+.np-art-wrap::before {
+  content: ""; position: absolute; width: min(82%, 46vh, 400px); aspect-ratio: 1; z-index: -1;
+  background: radial-gradient(closest-side, rgba(var(--c, 120, 80, 200), .85), rgba(var(--c, 120, 80, 200), 0));
+  border-radius: 42% 58% 63% 37% / 41% 44% 56% 59%;
+  filter: blur(30px); opacity: .75;
+  animation: artLiquid 9s ease-in-out infinite; animation-play-state: paused;
+  transform: scale(calc(1.05 + var(--pulse, 0) * .25));
+}
+body:not(.paused) .np-art-wrap::before { animation-play-state: running; }
+.np-art-wrap { isolation: isolate; }
+@keyframes artLiquid {
+  0%, 100% { border-radius: 42% 58% 63% 37% / 41% 44% 56% 59%; rotate: 0deg; }
+  33% { border-radius: 63% 37% 39% 61% / 57% 63% 37% 43%; rotate: 120deg; }
+  66% { border-radius: 37% 63% 55% 45% / 38% 47% 53% 62%; rotate: 240deg; }
+}
+
+/* Indicador de la barra inferior: borde líquido */
+.tab-blob { border-radius: 26px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .page::before, .page::after, .np-art-wrap::before, .np-play::before { animation: none !important; }
+}
